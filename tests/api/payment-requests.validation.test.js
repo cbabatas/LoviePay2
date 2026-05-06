@@ -1209,9 +1209,10 @@ function buildPayTables(overrides = {}) {
       id: "acct_eur_main",
       owner_id: "demo_user_001",
       display_name: "Everyday EUR",
+      account_number: "FI21 1234 5600 0007 85",
+      account_type: "current_account",
       currency: "EUR",
       balance: 412,
-      account_code: "1000",
       created_at: "2026-05-01T00:00:00.000Z",
       updated_at: "2026-05-01T00:00:00.000Z"
     },
@@ -1219,9 +1220,10 @@ function buildPayTables(overrides = {}) {
       id: "acct_usd_travel",
       owner_id: "demo_user_001",
       display_name: "Travel USD",
+      account_number: "US42 9988 7766 5544 33",
+      account_type: "current_account",
       currency: "USD",
       balance: 280,
-      account_code: "1010",
       created_at: "2026-05-01T00:00:00.000Z",
       updated_at: "2026-05-01T00:00:00.000Z"
     }
@@ -1401,9 +1403,10 @@ test("payIncomingPaymentRequest rejects accounts not owned by current user", asy
     id: "acct_friend_eur",
     owner_id: "friend_001",
     display_name: "Friend EUR",
+    account_number: "FI19 1010 0001 0001 11",
+    account_type: "current_account",
     currency: "EUR",
     balance: 1000,
-    account_code: "1000",
     created_at: "2026-05-01T00:00:00.000Z",
     updated_at: "2026-05-01T00:00:00.000Z"
   });
@@ -1521,7 +1524,7 @@ test("defaultSelectedSourceAccountId selects the only eligible account, otherwis
     ...demoUser,
     receiverAccounts: [
       ...demoUser.receiverAccounts,
-      { id: "acct_eur_extra", ownerId: demoUser.id, label: "Extra", displayName: "Extra", currency: "EUR", balance: 0, accountCode: "1099" }
+      { id: "acct_eur_extra", ownerId: demoUser.id, label: "Extra", displayName: "Extra", accountNumber: "FI19 9999 0000 0000 99", accountType: "current_account", currency: "EUR", balance: 0 }
     ]
   };
   assert.equal(defaultSelectedSourceAccountId({ currency: "EUR" }, altUser), "");
@@ -1535,7 +1538,7 @@ test("describeSourceAccountState reports none/single/multiple states", () => {
     ...demoUser,
     receiverAccounts: [
       ...demoUser.receiverAccounts,
-      { id: "acct_eur_extra", ownerId: demoUser.id, label: "Extra", displayName: "Extra", currency: "EUR", balance: 0, accountCode: "1099" }
+      { id: "acct_eur_extra", ownerId: demoUser.id, label: "Extra", displayName: "Extra", accountNumber: "FI19 9999 0000 0000 99", accountType: "current_account", currency: "EUR", balance: 0 }
     ]
   };
   assert.equal(describeSourceAccountState({ currency: "EUR" }, altUser).state, "multiple");

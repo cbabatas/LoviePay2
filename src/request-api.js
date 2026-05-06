@@ -143,6 +143,13 @@ export async function declineIncomingPaymentRequest(id, options = {}) {
   return body?.paymentRequest ?? null;
 }
 
+export async function fetchPaymentRequestByHash(hash, options = {}) {
+  const endpoint =
+    options.endpoint ?? `${DEFAULT_PAYMENT_REQUEST_URL}/by-hash/${encodeURIComponent(hash)}`;
+  const body = await requestJson(endpoint);
+  return body ?? null;
+}
+
 export async function payIncomingPaymentRequest(id, options = {}) {
   const endpoint =
     options.endpoint ?? `${DEFAULT_PAYMENT_REQUEST_URL}/${encodeURIComponent(id)}/pay`;

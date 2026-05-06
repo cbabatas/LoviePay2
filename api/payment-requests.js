@@ -358,14 +358,25 @@ export async function declineIncomingPaymentRequest(id, payload, options = {}) {
   };
 }
 
+const ACCOUNT_TYPE_LEDGER_CODE = {
+  current_account: "1000",
+  term_deposit: "1100"
+};
+
+function ledgerCodeForAccount(account) {
+  const type = account?.account_type ?? account?.accountType;
+  return ACCOUNT_TYPE_LEDGER_CODE[type] ?? "1000";
+}
+
 function toClientSourceAccount(row) {
   if (!row) return null;
   return {
     id: row.id,
     displayName: row.display_name ?? row.displayName ?? row.label ?? "",
+    accountNumber: row.account_number ?? row.accountNumber ?? "",
+    accountType: row.account_type ?? row.accountType ?? "current_account",
     currency: row.currency,
-    balance: Number(row.balance),
-    accountCode: row.account_code ?? row.accountCode ?? ""
+    balance: Number(row.balance)
   };
 }
 
@@ -418,9 +429,10 @@ function findDemoSourceAccount(currentUser, accountId) {
     id: account.id,
     owner_id: account.ownerId ?? currentUser?.id,
     display_name: account.displayName ?? account.label ?? "",
+    account_number: account.accountNumber ?? "",
+    account_type: account.accountType ?? "current_account",
     currency: account.currency,
     balance: Number(account.balance ?? 0),
-    account_code: account.accountCode ?? "1000",
     updated_at: new Date().toISOString()
   };
 }
@@ -698,7 +710,7 @@ export async function payIncomingPaymentRequest(id, payload, options = {}) {
     entry_type: "credit",
     amount: requestAmount,
     currency: promoted.currency,
-    account_code: account.account_code,
+    account_code: ledgerCodeForAccount(account),
     created_at: updatedAt
   };
 
@@ -715,6 +727,39 @@ export async function payIncomingPaymentRequest(id, payload, options = {}) {
       sourceAccount: toClientSourceAccount(updatedAccountRow),
       paymentTransaction: toClientPaymentTransaction(transactionRow),
       ledgerEntries: ledgerRows.map(toClientLedgerEntry)
+    }
+  };
+}
+
+export async function getPaymentRequestByHash(hash, options = {}) {
+  if (!hash) return requestErrorResult("request_not_found", 404);
+
+  const currentUser = options.currentUser ?? demoUser;
+  const supabase = options.supabase ?? createSupabaseServerClient();
+  const now = (options.now ?? (() => new Date()))();
+
+  const { data, error } = await supabase
+    .from(PAYMENT_REQUESTS_TABLE)
+    .select("*")
+    .eq("hash", hash)
+    .maybeSingle();
+
+  if (error) return requestErrorResult("incoming_detail_failed", 500);
+  if (!data) return requestErrorResult("request_not_found", 404);
+
+  if (data.sender_id !== currentUser.id && data.recipient_id !== currentUser.id) {
+    return requestErrorResult("request_not_found", 404);
+  }
+
+  const promoted = await promoteExpiredOnRead(supabase, data, now);
+  const direction = promoted.recipient_id === currentUser.id ? "incoming" : "outgoing";
+
+  return {
+    ok: true,
+    statusCode: 200,
+    body: {
+      paymentRequest: shapeWithDerivedFields(promoted, now),
+      direction
     }
   };
 }
@@ -761,6 +806,8 @@ export default async function handler(req, res) {
     result = await listOutgoingPaymentRequests({ currentUser });
   } else if (req.method === "GET" && pathParts.length === 0 && direction === "incoming") {
     result = await listIncomingPaymentRequests({ currentUser });
+  } else if (req.method === "GET" && pathParts.length === 2 && pathParts[0] === "by-hash") {
+    result = await getPaymentRequestByHash(pathParts[1], { currentUser });
   } else if (req.method === "GET" && pathParts.length === 1 && direction === "outgoing") {
     result = await getOutgoingPaymentRequest(pathParts[0], { currentUser });
   } else if (req.method === "GET" && pathParts.length === 1 && direction === "incoming") {

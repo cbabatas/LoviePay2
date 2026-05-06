@@ -25,9 +25,10 @@ This feature strengthens the product’s value proposition by:
 Ultimately, this feature helps position the product as a daily-use financial tool rather than a one-time transaction utility.
 
 ### Specs
-- [ ] LP-001.1 Create Payment Request
-- [ ] LP-001.2 View Incoming Requests
-- [ ] LP-001.3 View Outgoing Requests
-- [ ] LP-001.4 Process Payment Request
-- [ ] LP-001.5 Withdraw Payment Request
-- [ ] LP-001.6 Request Notifications
+- [x] 001 Create Payment Request
+- [x] 002 View Incoming Requests
+- [x] 003 View Outgoing Requests
+- [x] 004 Process Payment Request
+- [ ] 005 Notifications After Create Request
+- [ ] 006 Add Reminder Flow for Pending Status Record
+- [ ] 007 Suggest Friends While Creating Payment Request

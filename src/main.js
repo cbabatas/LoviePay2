@@ -31,6 +31,7 @@ import {
   declineIncomingPaymentRequest,
   fetchIncomingPaymentRequest,
   fetchIncomingPaymentRequests,
+  fetchPaymentRequestByHash,
   getOutgoingPaymentRequest,
   listOutgoingPaymentRequests,
   payIncomingPaymentRequest,
@@ -40,10 +41,101 @@ import {
 
 const PROCESSING_DELAY_MS = 2200;
 
+const PAY_ICON = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="2.5" y="6" width="19" height="13" rx="2"/><path d="M2.5 10h19"/><path d="M6.5 15h2"/><path d="M11.5 15h4"/></svg>`;
+const DECLINE_ICON = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M5.5 5.5l13 13"/></svg>`;
+const BACK_ARROW_ICON = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M15 18l-6-6 6-6"/></svg>`;
+const COPY_ICON = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>`;
+const COPY_OK_ICON = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 12.5l5 5 11-11"/></svg>`;
+
+function renderCopyLinkButton(link) {
+  const isCopied = state.copiedLink === link;
+  const icon = isCopied ? COPY_OK_ICON : COPY_ICON;
+  const label = isCopied ? "Copied" : "Copy link";
+  return `<button type="button" class="copy-link-button ${isCopied ? "is-copied" : ""}" data-copy-link="${escapeHtml(link)}" aria-label="${label}" title="${label}">${icon}</button>`;
+}
+
+const ACCOUNT_TYPE_LABELS = {
+  current_account: "Current account",
+  term_deposit: "Term deposit"
+};
+
+function formatAccountTypeLabel(value) {
+  return ACCOUNT_TYPE_LABELS[value] ?? "Current account";
+}
+
+function absoluteShareUrl(link) {
+  if (!link) return "";
+  try {
+    return new URL(link, window.location.origin).toString();
+  } catch {
+    return link;
+  }
+}
+
+function renderShareableLinkCell(link) {
+  const absolute = absoluteShareUrl(link);
+  return `<dd class="shareable-link-cell">
+    <a href="${escapeHtml(absolute)}" target="_blank" rel="noopener noreferrer" class="shareable-link-text">${escapeHtml(absolute)}</a>
+    ${renderCopyLinkButton(absolute)}
+  </dd>`;
+}
+
+function renderBackBreadcrumb(id, label) {
+  return `<nav class="detail-breadcrumb" aria-label="Breadcrumb"><button type="button" class="back-link" id="${id}">${BACK_ARROW_ICON}<span>${escapeHtml(label)}</span></button></nav>`;
+}
+
 const app = document.querySelector("#app");
 const SESSION_KEY = "loviepay.demoSignedIn";
 const SESSION_USER_KEY = "loviepay.demoUserId";
 const NOTE_LIMIT = 100;
+
+const ROUTES = {
+  outgoingList: "/outgoing-list",
+  incomingList: "/incoming-list",
+  create: "/create-payment-request"
+};
+
+function routePathForState() {
+  if (state.view === "incoming") return ROUTES.incomingList;
+  if (state.view === "incoming-detail") {
+    return state.detailId ? `${ROUTES.incomingList}/${encodeURIComponent(state.detailId)}` : ROUTES.incomingList;
+  }
+  if (state.view === "outgoing") return ROUTES.outgoingList;
+  if (state.view === "detail") {
+    return state.detailId ? `${ROUTES.outgoingList}/${encodeURIComponent(state.detailId)}` : ROUTES.outgoingList;
+  }
+  if (state.view === "create") return ROUTES.create;
+  return ROUTES.outgoingList;
+}
+
+function syncUrlToState({ replace = false } = {}) {
+  const target = routePathForState();
+  const current = window.location.pathname + window.location.search;
+  if (target === current) return;
+  if (replace) {
+    window.history.replaceState({ view: state.view, detailId: state.detailId }, "", target);
+  } else {
+    window.history.pushState({ view: state.view, detailId: state.detailId }, "", target);
+  }
+}
+
+function parseRoute(pathname) {
+  const path = pathname.replace(/\/+$/, "") || "/";
+  if (path === "/" || path === ROUTES.outgoingList) return { view: "outgoing" };
+  if (path === ROUTES.incomingList) return { view: "incoming" };
+  if (path === ROUTES.create) return { view: "create" };
+
+  const outgoingDetail = path.match(/^\/outgoing-list\/([^/]+)$/);
+  if (outgoingDetail) return { view: "detail", detailId: decodeURIComponent(outgoingDetail[1]) };
+
+  const incomingDetail = path.match(/^\/incoming-list\/([^/]+)$/);
+  if (incomingDetail) return { view: "incoming-detail", detailId: decodeURIComponent(incomingDetail[1]) };
+
+  const shareLink = path.match(/^\/r\/([^/]+)$/);
+  if (shareLink) return { view: "share", hash: decodeURIComponent(shareLink[1]) };
+
+  return { view: "outgoing" };
+}
 
 function resolveSessionUser() {
   const id = sessionStorage.getItem(SESSION_USER_KEY);
@@ -54,7 +146,7 @@ const state = {
   signedIn: sessionStorage.getItem(SESSION_KEY) === "true",
   currentUser: resolveSessionUser(),
   signInError: "",
-  view: "create",
+  view: "outgoing",
   detailId: "",
   searchQuery: "",
   selectedRecipientId: "",
@@ -66,6 +158,8 @@ const state = {
   submitError: "",
   success: null,
   copyMessage: "",
+  copiedLink: "",
+  sidebarOpen: false,
   outgoing: {
     loaded: false,
     loading: false,
@@ -243,19 +337,28 @@ function renderSignIn() {
 }
 
 function renderWorkspace() {
+  const sidebarOpen = state.sidebarOpen ? "is-open" : "";
   return `
-    <div class="app-shell">
-      <aside class="sidebar" aria-label="Demo user">
-        <div class="avatar" aria-hidden="true">${escapeHtml(state.currentUser.avatarLabel)}</div>
-        <div>
-          <p class="sidebar-name">${escapeHtml(state.currentUser.fullName)}</p>
-          <p class="sidebar-meta">${escapeHtml(state.currentUser.customerNumber)}</p>
-          <p class="sidebar-email">${escapeHtml(state.currentUser.email)}</p>
+    <div class="app-shell ${sidebarOpen}">
+      <button type="button" class="sidebar-toggle" id="sidebar-toggle" aria-label="${state.sidebarOpen ? "Close menu" : "Open menu"}" aria-expanded="${state.sidebarOpen ? "true" : "false"}" aria-controls="primary-sidebar">
+        <span class="sidebar-toggle-icon" aria-hidden="true"></span>
+        <span class="sidebar-toggle-icon" aria-hidden="true"></span>
+        <span class="sidebar-toggle-icon" aria-hidden="true"></span>
+      </button>
+      <div class="sidebar-backdrop" data-sidebar-backdrop></div>
+      <aside class="sidebar" id="primary-sidebar" aria-label="Demo user">
+        <div class="sidebar-top">
+          <div class="avatar" aria-hidden="true">${escapeHtml(state.currentUser.avatarLabel)}</div>
+          <div>
+            <p class="sidebar-name">${escapeHtml(state.currentUser.fullName)}</p>
+            <p class="sidebar-meta">${escapeHtml(state.currentUser.customerNumber)}</p>
+            <p class="sidebar-email">${escapeHtml(state.currentUser.email)}</p>
+          </div>
+          <nav class="sidebar-nav" aria-label="Workspace">
+            <a href="#" aria-current="page">Payment request</a>
+          </nav>
         </div>
-        <nav class="sidebar-nav" aria-label="Workspace">
-          <a href="#" aria-current="page">Payment request</a>
-        </nav>
-        <button type="button" class="secondary-action" id="sign-out">Sign out</button>
+        <button type="button" class="secondary-action sidebar-logout" id="sign-out">Log out</button>
       </aside>
 
       <main class="workspace" aria-labelledby="page-title">
@@ -268,7 +371,6 @@ function renderWorkspace() {
         </header>
 
         <div class="payment-tabs" role="tablist" aria-label="Payment request views">
-          <button type="button" role="tab" id="create-tab" aria-selected="${state.view === "create"}" class="tab-action ${state.view === "create" ? "is-active" : ""}">Create</button>
           <button type="button" role="tab" id="outgoing-tab" aria-selected="${state.view === "outgoing" || state.view === "detail"}" class="tab-action ${state.view === "outgoing" || state.view === "detail" ? "is-active" : ""}">Outgoing</button>
           <button type="button" role="tab" id="incoming-tab" aria-selected="${state.view === "incoming" || state.view === "incoming-detail"}" class="tab-action ${state.view === "incoming" || state.view === "incoming-detail" ? "is-active" : ""}">Incoming</button>
         </div>
@@ -480,13 +582,7 @@ function renderSuccess(paymentRequest) {
         </div>
         <div>
           <dt>Shareable link</dt>
-          <dd>
-            <div class="share-link-row">
-              <a href="${escapeHtml(paymentRequest.shareableLink)}">${escapeHtml(paymentRequest.shareableLink)}</a>
-              <button type="button" class="secondary-action" id="copy-share-link">Copy</button>
-            </div>
-            <span id="copy-status" class="copy-status" aria-live="polite">${escapeHtml(state.copyMessage)}</span>
-          </dd>
+          ${renderShareableLinkCell(paymentRequest.shareableLink)}
         </div>
       </dl>
     </section>
@@ -605,13 +701,13 @@ function renderOutgoingRow(request) {
 
 function renderOutgoingDetailView() {
   if (state.outgoing.detailLoading) {
-    return `<section class="outgoing-panel" aria-live="polite"><button type="button" class="secondary-action" id="back-to-outgoing">Back</button><p class="empty-state">Loading request details...</p></section>`;
+    return `${renderBackBreadcrumb("back-to-outgoing", "Outgoing requests")}<section class="outgoing-panel" aria-live="polite"><p class="empty-state">Loading request details...</p></section>`;
   }
 
   if (state.outgoing.detailError || !state.outgoing.detail) {
     return `
+      ${renderBackBreadcrumb("back-to-outgoing", "Outgoing requests")}
       <section class="outgoing-panel detail-panel">
-        <button type="button" class="secondary-action" id="back-to-outgoing">Back</button>
         <div class="empty-block" role="alert">
           <h2>Outgoing request unavailable</h2>
           <p>${escapeHtml(unavailableRequestMessage(state.outgoing.detailError))}</p>
@@ -625,8 +721,8 @@ function renderOutgoingDetailView() {
   const canWithdraw = canWithdrawPaymentRequest(request);
 
   return `
+    ${renderBackBreadcrumb("back-to-outgoing", "Outgoing requests")}
     <section class="outgoing-panel detail-panel" aria-labelledby="detail-title">
-      <button type="button" class="secondary-action" id="back-to-outgoing">Back</button>
       ${state.outgoing.successMessage ? `<p class="banner banner-success" role="status">${escapeHtml(state.outgoing.successMessage)}</p>` : ""}
       <div class="detail-header">
         <div>
@@ -642,7 +738,7 @@ function renderOutgoingDetailView() {
         <div><dt>Request date</dt><dd>${escapeHtml(formatRequestDate(request.createdAt))}</dd></div>
         <div><dt>Receiver account</dt><dd>${escapeHtml(receiverAccountLabel(request.receiverAccountId))}</dd></div>
         <div><dt>Note</dt><dd>${escapeHtml(request.note || "No note")}</dd></div>
-        <div><dt>Shareable link</dt><dd><a href="${escapeHtml(request.shareableLink)}">${escapeHtml(request.shareableLink)}</a></dd></div>
+        <div><dt>Shareable link</dt>${renderShareableLinkCell(request.shareableLink)}</div>
       </dl>
       <div class="detail-actions">
         ${
@@ -774,12 +870,12 @@ function renderIncomingRow(request) {
       <div class="row-actions">
         ${
           payable
-            ? `<button type="button" class="primary-action pay-action" data-pay="${escapeHtml(request.id)}" data-source="list">Pay</button>`
+            ? `<button type="button" class="icon-action icon-pay" data-pay="${escapeHtml(request.id)}" data-source="list" aria-label="Pay" title="Pay">${PAY_ICON}</button>`
             : ""
         }
         ${
           declinable
-            ? `<button type="button" class="secondary-action danger-action" data-decline="${escapeHtml(request.id)}" data-source="list">Decline</button>`
+            ? `<button type="button" class="icon-action icon-decline" data-decline="${escapeHtml(request.id)}" data-source="list" aria-label="Decline" title="Decline">${DECLINE_ICON}</button>`
             : request.status === "pending"
               ? `<p class="ineligible-message">${escapeHtml(ERROR_MESSAGES.unavailable_decline_action)}</p>`
               : ""
@@ -791,13 +887,13 @@ function renderIncomingRow(request) {
 
 function renderIncomingDetailView() {
   if (state.incoming.detailLoading) {
-    return `<section class="incoming-panel outgoing-panel" aria-live="polite"><button type="button" class="secondary-action" id="back-to-incoming">Back</button><p class="empty-state">Loading request details...</p></section>`;
+    return `${renderBackBreadcrumb("back-to-incoming", "Incoming requests")}<section class="incoming-panel outgoing-panel" aria-live="polite"><p class="empty-state">Loading request details...</p></section>`;
   }
 
   if (state.incoming.detailError || !state.incoming.detail) {
     return `
+      ${renderBackBreadcrumb("back-to-incoming", "Incoming requests")}
       <section class="incoming-panel outgoing-panel detail-panel">
-        <button type="button" class="secondary-action" id="back-to-incoming">Back</button>
         <div class="empty-block" role="alert">
           <h2>Incoming request unavailable</h2>
           <p>${escapeHtml(unavailableRequestMessage(state.incoming.detailError))}</p>
@@ -812,8 +908,8 @@ function renderIncomingDetailView() {
   const daysLabel = renderDaysRemainingLabel(request);
 
   return `
+    ${renderBackBreadcrumb("back-to-incoming", "Incoming requests")}
     <section class="incoming-panel outgoing-panel detail-panel" aria-labelledby="incoming-detail-title">
-      <button type="button" class="secondary-action" id="back-to-incoming">Back</button>
       ${state.incoming.successMessage ? `<p class="banner banner-success" role="status">${escapeHtml(state.incoming.successMessage)}</p>` : ""}
       <div class="detail-header">
         <div>
@@ -831,7 +927,7 @@ function renderIncomingDetailView() {
         <div><dt>Days remaining</dt><dd>${escapeHtml(daysLabel)}</dd></div>
         <div><dt>Receiver account</dt><dd>${escapeHtml(receiverAccountLabel(request.receiverAccountId))}</dd></div>
         <div><dt>Note</dt><dd>${escapeHtml(request.note || "No note")}</dd></div>
-        <div><dt>Shareable link</dt><dd><a href="${escapeHtml(request.shareableLink)}">${escapeHtml(request.shareableLink)}</a></dd></div>
+        <div><dt>Shareable link</dt>${renderShareableLinkCell(request.shareableLink)}</div>
       </dl>
       <div class="detail-actions">
         ${
@@ -909,7 +1005,7 @@ function renderPayDialog() {
 
   const accountSelector =
     description.state === "single"
-      ? `<p class="pay-account-fixed">Source account: <strong>${escapeHtml(eligible[0].displayName ?? eligible[0].label)}</strong> (${escapeHtml(eligible[0].currency)} ${escapeHtml(formatAmount(eligible[0].balance, eligible[0].currency))})</p>`
+      ? `<p class="pay-account-fixed">Source account: <strong>${escapeHtml(eligible[0].displayName ?? eligible[0].label)}</strong> · ${escapeHtml(formatAccountTypeLabel(eligible[0].accountType))}<br /><span class="pay-account-number">${escapeHtml(eligible[0].accountNumber ?? "")}</span> · ${escapeHtml(formatAmount(eligible[0].balance, eligible[0].currency))} ${escapeHtml(eligible[0].currency)}</p>`
       : description.state === "multiple"
         ? `<label class="pay-account-label" for="pay-source-account">
             Source account
@@ -919,7 +1015,7 @@ function renderPayDialog() {
                 .map(
                   (account) => `
                 <option value="${escapeHtml(account.id)}" ${dialog.selectedAccountId === account.id ? "selected" : ""}>
-                  ${escapeHtml(account.displayName ?? account.label)} — ${escapeHtml(formatAmount(account.balance, account.currency))} ${escapeHtml(account.currency)}
+                  ${escapeHtml(account.displayName ?? account.label)} (${escapeHtml(formatAccountTypeLabel(account.accountType))}) — ${escapeHtml(formatAmount(account.balance, account.currency))} ${escapeHtml(account.currency)}
                 </option>
               `
                 )
@@ -928,9 +1024,10 @@ function renderPayDialog() {
           </label>`
         : `<p class="banner banner-error pay-no-account" role="alert">${escapeHtml(ERROR_MESSAGES.no_matching_source_account)}</p>`;
 
-  const balanceSummary = selectedAccount
-    ? `<p class="pay-balance-summary">Balance: ${escapeHtml(formatAmount(balance, selectedAccount.currency))} ${escapeHtml(selectedAccount.currency)}</p>`
-    : "";
+  const balanceSummary =
+    selectedAccount && description.state !== "single"
+      ? `<p class="pay-balance-summary">${escapeHtml(selectedAccount.accountNumber ?? "")}${selectedAccount.accountNumber ? " · " : ""}Balance: ${escapeHtml(formatAmount(balance, selectedAccount.currency))} ${escapeHtml(selectedAccount.currency)}</p>`
+      : "";
 
   const insufficientBanner = insufficient
     ? `<p class="banner banner-error" role="alert">${escapeHtml(ERROR_MESSAGES.source_account_insufficient_balance)}</p>`
@@ -1016,18 +1113,27 @@ function bindSignIn() {
       sessionStorage.setItem(SESSION_USER_KEY, matched.id);
       setCurrentUserId(matched.id);
       state.signInError = "";
-      state.view = "create";
       resetRequestState();
       resetListsState();
-    } else {
-      state.signInError = "Invalid email or password.";
+      openOutgoingList();
+      return;
     }
-
+    state.signInError = "Invalid email or password.";
     render();
   });
 }
 
 function bindWorkspace() {
+  document.querySelector("#sidebar-toggle")?.addEventListener("click", () => {
+    state.sidebarOpen = !state.sidebarOpen;
+    render();
+  });
+
+  document.querySelector("[data-sidebar-backdrop]")?.addEventListener("click", () => {
+    state.sidebarOpen = false;
+    render();
+  });
+
   document.querySelector("#sign-out").addEventListener("click", () => {
     state.signedIn = false;
     state.currentUser = null;
@@ -1037,30 +1143,25 @@ function bindWorkspace() {
     setCurrentUserId(null);
     resetRequestState();
     resetListsState();
+    window.history.replaceState({}, "", "/");
     render();
   });
 
   document.querySelector(".sidebar-nav a").addEventListener("click", (event) => {
     event.preventDefault();
-    state.view = "create";
+    state.sidebarOpen = false;
     resetRequestState();
-    resetOutgoingTransient();
     resetIncomingTransient();
-    render();
+    openOutgoingList();
   });
 
   document.querySelector("#open-create-request").addEventListener("click", () => {
     state.view = "create";
+    state.detailId = "";
     resetRequestState();
     resetOutgoingTransient();
     resetIncomingTransient();
-    render();
-  });
-
-  document.querySelector("#create-tab").addEventListener("click", () => {
-    state.view = "create";
-    resetOutgoingTransient();
-    resetIncomingTransient();
+    syncUrlToState();
     render();
   });
 
@@ -1075,6 +1176,12 @@ function bindWorkspace() {
   bindCreateView();
   bindOutgoingView();
   bindIncomingView();
+
+  document.querySelectorAll("[data-copy-link]").forEach((button) => {
+    button.addEventListener("click", () => {
+      copyLinkToClipboard(button.dataset.copyLink, { kind: "detail" });
+    });
+  });
 }
 
 function bindCreateView() {
@@ -1135,7 +1242,6 @@ function bindCreateView() {
   });
 
   document.querySelector("#request-form").addEventListener("submit", submitRequest);
-  document.querySelector("#copy-share-link")?.addEventListener("click", copyShareableLink);
 }
 
 function bindOutgoingView() {
@@ -1206,7 +1312,9 @@ function closeWithdrawDialog() {
 
 async function openOutgoingList(reload = false) {
   state.view = "outgoing";
+  state.detailId = "";
   resetOutgoingTransient();
+  syncUrlToState();
   render();
   if (reload || !state.outgoing.loaded) {
     await loadOutgoingRequests(reload);
@@ -1238,13 +1346,14 @@ async function loadOutgoingRequests(force = false) {
   }
 }
 
-async function openOutgoingDetail(id) {
+async function openOutgoingDetail(id, { skipUrlSync = false } = {}) {
   state.view = "detail";
   state.detailId = id;
   state.outgoing.detail = null;
   state.outgoing.detailError = "";
   state.outgoing.detailLoading = true;
   state.outgoing.successMessage = "";
+  if (!skipUrlSync) syncUrlToState();
   render();
 
   try {
@@ -1295,18 +1404,30 @@ async function confirmWithdraw() {
   }
 }
 
-async function copyShareableLink() {
-  if (!state.success?.shareableLink) return;
-
-  const absoluteUrl = new URL(state.success.shareableLink, window.location.origin).toString();
+async function copyLinkToClipboard(link, { kind = "detail" } = {}) {
+  if (!link) return;
+  const absoluteUrl = new URL(link, window.location.origin).toString();
   try {
     await navigator.clipboard.writeText(absoluteUrl);
-    state.copyMessage = "Copied";
+    if (kind === "create") {
+      state.copyMessage = "Copied";
+    }
+    state.copiedLink = link;
   } catch {
-    state.copyMessage = "Copy failed";
+    if (kind === "create") {
+      state.copyMessage = "Copy failed";
+    }
+    state.copiedLink = "";
   }
-
   render();
+  if (state.copiedLink === link) {
+    setTimeout(() => {
+      if (state.copiedLink === link) {
+        state.copiedLink = "";
+        render();
+      }
+    }, 1800);
+  }
 }
 
 async function submitRequest(event) {
@@ -1333,7 +1454,16 @@ async function submitRequest(event) {
   render();
 
   try {
-    state.success = await createPaymentRequest(validation.value);
+    const created = await createPaymentRequest(validation.value);
+    state.success = created;
+    state.searchQuery = "";
+    state.selectedRecipientId = "";
+    state.receiverAccountId = "";
+    state.amount = "";
+    state.note = "";
+    state.errors = {};
+    state.submitError = "";
+    state.copyMessage = "";
   } catch (error) {
     state.submitError = error.message || ERROR_MESSAGES.request_creation_failed;
   } finally {
@@ -1533,7 +1663,8 @@ function applyUpdatedSourceAccount(updated) {
           ...account,
           balance: Number(updated.balance),
           displayName: updated.displayName ?? account.displayName ?? account.label,
-          accountCode: updated.accountCode ?? account.accountCode
+          accountNumber: updated.accountNumber ?? account.accountNumber,
+          accountType: updated.accountType ?? account.accountType
         }
       : account
   );
@@ -1554,8 +1685,10 @@ function closeDeclineDialog() {
 async function openIncomingList(reload = false) {
   const cameFromDetail = state.view === "incoming-detail";
   state.view = "incoming";
+  state.detailId = "";
   resetIncomingTransient();
   resetOutgoingTransient();
+  syncUrlToState();
   render();
   if (reload || (!state.incoming.loaded && !cameFromDetail)) {
     await loadIncomingRequests(reload);
@@ -1593,12 +1726,14 @@ async function loadIncomingRequests(force = false) {
   }
 }
 
-async function openIncomingDetail(id) {
+async function openIncomingDetail(id, { skipUrlSync = false } = {}) {
   state.view = "incoming-detail";
+  state.detailId = id;
   state.incoming.detail = null;
   state.incoming.detailError = "";
   state.incoming.detailLoading = true;
   state.incoming.successMessage = "";
+  if (!skipUrlSync) syncUrlToState();
   render();
 
   try {
@@ -1651,4 +1786,67 @@ async function confirmDecline() {
   }
 }
 
-render();
+function applyRouteFromLocation({ replaceUrl = true } = {}) {
+  if (!state.signedIn || !state.currentUser) {
+    render();
+    return;
+  }
+
+  const route = parseRoute(window.location.pathname);
+  if (route.view === "outgoing") {
+    openOutgoingList();
+  } else if (route.view === "incoming") {
+    openIncomingList();
+  } else if (route.view === "create") {
+    state.view = "create";
+    state.detailId = "";
+    resetRequestState();
+    resetOutgoingTransient();
+    resetIncomingTransient();
+    if (replaceUrl) syncUrlToState({ replace: true });
+    render();
+  } else if (route.view === "detail" && route.detailId) {
+    openOutgoingDetail(route.detailId, { skipUrlSync: replaceUrl });
+    if (replaceUrl) syncUrlToState({ replace: true });
+  } else if (route.view === "incoming-detail" && route.detailId) {
+    openIncomingDetail(route.detailId, { skipUrlSync: replaceUrl });
+    if (replaceUrl) syncUrlToState({ replace: true });
+  } else if (route.view === "share" && route.hash) {
+    resolveShareableLink(route.hash);
+  } else {
+    openOutgoingList();
+  }
+}
+
+async function resolveShareableLink(hash) {
+  state.view = "outgoing";
+  state.outgoing.loading = true;
+  state.outgoing.error = "";
+  render();
+
+  try {
+    const result = await fetchPaymentRequestByHash(hash);
+    const request = result?.paymentRequest;
+    const direction = result?.direction;
+    if (!request) {
+      throw new Error("Request not found");
+    }
+    if (direction === "incoming") {
+      await openIncomingDetail(request.id);
+    } else {
+      await openOutgoingDetail(request.id);
+    }
+  } catch (error) {
+    state.outgoing.loading = false;
+    state.outgoing.error = error?.message || ERROR_MESSAGES.request_not_found;
+    state.view = "outgoing";
+    window.history.replaceState({}, "", ROUTES.outgoingList);
+    render();
+  }
+}
+
+window.addEventListener("popstate", () => {
+  applyRouteFromLocation({ replaceUrl: false });
+});
+
+applyRouteFromLocation({ replaceUrl: true });

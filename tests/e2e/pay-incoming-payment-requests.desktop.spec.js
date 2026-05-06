@@ -192,9 +192,10 @@ export async function mockPayIncomingApi(page, options = {}) {
         sourceAccount: {
           id: "acct_eur_main",
           displayName: "Everyday EUR",
+          accountNumber: "FI21 1234 5600 0007 85",
+          accountType: "current_account",
           currency: request.currency,
-          balance: 412 - request.amount,
-          accountCode: "1000"
+          balance: 412 - request.amount
         },
         paymentTransaction: {
           id: `txn_${request.id}`,
