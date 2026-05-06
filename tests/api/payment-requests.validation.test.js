@@ -5,7 +5,7 @@ import {
   getOutgoingPaymentRequest,
   listOutgoingPaymentRequests,
   withdrawOutgoingPaymentRequest
-} from "../../api/payment-requests/_handler.js";
+} from "../../api/payment-requests.js";
 import { demoUser, friends } from "../../src/mock-data.js";
 import {
   canWithdrawPaymentRequest,
@@ -736,7 +736,7 @@ import {
   listIncomingPaymentRequests,
   getIncomingPaymentRequest,
   declineIncomingPaymentRequest
-} from "../../api/payment-requests/_handler.js";
+} from "../../api/payment-requests.js";
 import { filterIncomingPaymentRequests } from "../../src/payment-request.js";
 
 const incomingNow = () => new Date("2026-05-06T13:00:00.000Z");
@@ -1174,7 +1174,7 @@ test("declineIncomingPaymentRequest success transitions pending row to declined 
   ]);
 });
 
-import { payIncomingPaymentRequest } from "../../api/payment-requests/_handler.js";
+import { payIncomingPaymentRequest } from "../../api/payment-requests.js";
 import {
   canPayIncoming,
   defaultSelectedSourceAccountId,
