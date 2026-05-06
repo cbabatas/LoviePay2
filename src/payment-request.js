@@ -1,5 +1,7 @@
 import { demoUser, friends, SUPPORTED_CURRENCIES } from "./mock-data.js";
 
+const ALL_USERS = [demoUser, ...friends];
+
 export const ERROR_MESSAGES = {
   invalid_amount: "Amount must be greater than zero and less than 1,000,000.",
   recipient_required: "Select an active friend before sending the request.",
@@ -160,7 +162,7 @@ export function currencySymbol(currency) {
   return parts.find((part) => part.type === "currency")?.value ?? currency;
 }
 
-export function findRecipientDisplay(recipientId, friendList = friends) {
+export function findRecipientDisplay(recipientId, friendList = ALL_USERS) {
   const recipient = friendList.find((friend) => friend.id === recipientId);
   return {
     id: recipientId,
@@ -290,7 +292,7 @@ export function scopeIncomingPaymentRequests(requests, currentUser = demoUser) {
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 }
 
-export function findSenderDisplay(senderId, friendList = friends) {
+export function findSenderDisplay(senderId, friendList = ALL_USERS) {
   const sender = friendList.find((friend) => friend.id === senderId);
   return {
     id: senderId,
