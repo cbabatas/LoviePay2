@@ -7,7 +7,14 @@ import {
   computeExpiresAt,
   computeDaysRemaining
 } from "../src/payment-request.js";
-import { demoUser } from "../src/mock-data.js";
+import { demoUser, friends } from "../src/mock-data.js";
+
+const ALL_USERS = [demoUser, ...friends];
+
+function resolveCurrentUser(req) {
+  const userId = req.headers["x-demo-user-id"];
+  return ALL_USERS.find((u) => u.id === userId) ?? demoUser;
+}
 
 const PAYMENT_REQUESTS_TABLE = "payment_requests";
 const HASH_BYTE_LENGTH = 18;
@@ -380,25 +387,26 @@ export default async function handler(req, res) {
     pathParts = pathParts.slice(2);
   }
   const direction = url.searchParams.get("direction");
+  const currentUser = resolveCurrentUser(req);
   let result = null;
 
   if (req.method === "POST" && pathParts.length === 0) {
     const payload = await readBody(req);
-    result = await createPaymentRequest(payload);
+    result = await createPaymentRequest(payload, { currentUser });
   } else if (req.method === "GET" && pathParts.length === 0 && direction === "outgoing") {
-    result = await listOutgoingPaymentRequests();
+    result = await listOutgoingPaymentRequests({ currentUser });
   } else if (req.method === "GET" && pathParts.length === 0 && direction === "incoming") {
-    result = await listIncomingPaymentRequests();
+    result = await listIncomingPaymentRequests({ currentUser });
   } else if (req.method === "GET" && pathParts.length === 1 && direction === "outgoing") {
-    result = await getOutgoingPaymentRequest(pathParts[0]);
+    result = await getOutgoingPaymentRequest(pathParts[0], { currentUser });
   } else if (req.method === "GET" && pathParts.length === 1 && direction === "incoming") {
-    result = await getIncomingPaymentRequest(pathParts[0]);
+    result = await getIncomingPaymentRequest(pathParts[0], { currentUser });
   } else if (req.method === "PATCH" && pathParts.length === 2 && pathParts[1] === "withdraw") {
     const payload = await readBody(req);
-    result = await withdrawOutgoingPaymentRequest(pathParts[0], payload);
+    result = await withdrawOutgoingPaymentRequest(pathParts[0], payload, { currentUser });
   } else if (req.method === "PATCH" && pathParts.length === 2 && pathParts[1] === "decline") {
     const payload = await readBody(req);
-    result = await declineIncomingPaymentRequest(pathParts[0], payload);
+    result = await declineIncomingPaymentRequest(pathParts[0], payload, { currentUser });
   } else {
     const allowed = pathParts.length === 0 ? "GET, POST" : "GET, PATCH";
     res.setHeader("Allow", allowed);

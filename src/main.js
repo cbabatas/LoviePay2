@@ -28,6 +28,7 @@ import {
   fetchIncomingPaymentRequests,
   getOutgoingPaymentRequest,
   listOutgoingPaymentRequests,
+  setCurrentUserId,
   withdrawPaymentRequest
 } from "./request-api.js";
 
@@ -88,6 +89,10 @@ const state = {
     successMessage: ""
   }
 };
+
+if (state.currentUser) {
+  setCurrentUserId(state.currentUser.id);
+}
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -881,6 +886,7 @@ function bindSignIn() {
       state.currentUser = matched;
       sessionStorage.setItem(SESSION_KEY, "true");
       sessionStorage.setItem(SESSION_USER_KEY, matched.id);
+      setCurrentUserId(matched.id);
       state.signInError = "";
       state.view = "create";
       resetRequestState();
@@ -900,6 +906,7 @@ function bindWorkspace() {
     state.signInError = "";
     sessionStorage.removeItem(SESSION_KEY);
     sessionStorage.removeItem(SESSION_USER_KEY);
+    setCurrentUserId(null);
     resetRequestState();
     resetListsState();
     render();

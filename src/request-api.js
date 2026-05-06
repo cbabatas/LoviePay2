@@ -3,6 +3,12 @@ import { ERROR_MESSAGES } from "./payment-request.js";
 const DEFAULT_CREATE_URL = "/api/payment-requests";
 const DEFAULT_PAYMENT_REQUEST_URL = "/api/payment-requests";
 
+let _currentUserId = null;
+
+export function setCurrentUserId(id) {
+  _currentUserId = id;
+}
+
 export class CreatePaymentRequestError extends Error {
   constructor(code, message, options = {}) {
     super(message);
@@ -33,7 +39,8 @@ export async function createPaymentRequest(payload, options = {}) {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Accept: "application/json"
+      Accept: "application/json",
+      ...(_currentUserId ? { "x-demo-user-id": _currentUserId } : {})
     },
     body: JSON.stringify(requestBody)
   });
@@ -68,7 +75,8 @@ export async function requestJson(endpoint, options = {}) {
   const response = await fetch(endpoint, {
     headers: {
       Accept: "application/json",
-      ...(options.body ? { "Content-Type": "application/json" } : {})
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...(_currentUserId ? { "x-demo-user-id": _currentUserId } : {})
     },
     ...options
   });
