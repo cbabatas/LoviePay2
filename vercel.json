@@ -1,5 +1,6 @@
 {
   "rewrites": [
+    { "source": "/api/payment-requests/(.*)", "destination": "/api/payment-requests" },
     { "source": "/((?!api/|assets/|.*\\..*).*)", "destination": "/index.html" }
   ]
 }

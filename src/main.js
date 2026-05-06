@@ -1,6 +1,6 @@
-import { demoUser, friends } from "./mock-data.js";
+import { users } from "./mock-data.js";
 
-const ALL_USERS = [demoUser, ...friends];
+const ALL_USERS = users;
 import {
   ERROR_MESSAGES,
   canDeclineIncoming,
@@ -218,7 +218,7 @@ function escapeHtml(value) {
 }
 
 function selectedRecipient() {
-  return friends.find((friend) => friend.id === state.selectedRecipientId) ?? null;
+  return ALL_USERS.find((user) => user.id === state.selectedRecipientId) ?? null;
 }
 
 function fieldError(name) {
@@ -228,8 +228,8 @@ function fieldError(name) {
 
 function requestedAmountText(currency = deriveCurrency(state.receiverAccountId)) {
   const validation = validatePaymentRequestForm({
-    recipientId: state.selectedRecipientId || "friend_001",
-    receiverAccountId: state.receiverAccountId || "acct_eur_main",
+    recipientId: state.selectedRecipientId || "user_002",
+    receiverAccountId: state.receiverAccountId || "user_001_acct_eur",
     amount: state.amount || "0",
     note: state.note
   });
@@ -574,7 +574,7 @@ function renderInlineError(id, message) {
 }
 
 function renderSuccess(paymentRequest) {
-  const recipient = friends.find((friend) => friend.id === paymentRequest.recipientId);
+  const recipient = ALL_USERS.find((user) => user.id === paymentRequest.recipientId);
   return `
     <section id="success-state" class="success-panel" aria-live="polite" tabindex="-1">
       <p class="eyebrow">Request created</p>

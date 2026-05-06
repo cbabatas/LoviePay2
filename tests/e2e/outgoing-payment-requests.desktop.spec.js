@@ -8,9 +8,9 @@ const demoPassword = "1234";
 const outgoingFixtures = [
   {
     id: "req_out_pending_list",
-    senderId: "demo_user_001",
-    recipientId: "friend_001",
-    receiverAccountId: "acct_eur_main",
+    senderId: "user_001",
+    recipientId: "user_002",
+    receiverAccountId: "user_001_acct_eur",
     amount: 125.5,
     currency: "EUR",
     note: "Dinner split",
@@ -22,9 +22,9 @@ const outgoingFixtures = [
   },
   {
     id: "req_out_pending_detail",
-    senderId: "demo_user_001",
-    recipientId: "friend_002",
-    receiverAccountId: "acct_usd_travel",
+    senderId: "user_001",
+    recipientId: "user_003",
+    receiverAccountId: "user_001_acct_usd",
     amount: 88,
     currency: "USD",
     note: "Museum tickets",
@@ -36,9 +36,9 @@ const outgoingFixtures = [
   },
   {
     id: "req_out_withdrawn",
-    senderId: "demo_user_001",
-    recipientId: "friend_003",
-    receiverAccountId: "acct_gbp_family",
+    senderId: "user_001",
+    recipientId: "user_004",
+    receiverAccountId: "user_001_acct_gbp",
     amount: 42.75,
     currency: "GBP",
     note: "Already canceled",

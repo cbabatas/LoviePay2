@@ -1,15 +1,16 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { createSupabaseServerClient, includeDebugDetails, isProduction } from "../supabase-client.js";
-import { validateCreatePaymentRequestPayload } from "../payment-request-validation.js";
+import { createSupabaseServerClient, includeDebugDetails } from "./supabase-client.js";
+import { validateCreatePaymentRequestPayload } from "./payment-request-validation.js";
 import {
   ERROR_MESSAGES,
   EXPIRY_WINDOW_MS,
   computeExpiresAt,
   computeDaysRemaining
-} from "../../src/payment-request.js";
-import { demoUser, friends } from "../../src/mock-data.js";
+} from "../src/payment-request.js";
+import { users } from "../src/mock-data.js";
 
-const ALL_USERS = [demoUser, ...friends];
+const ALL_USERS = users;
+const demoUser = users[0];
 const ACCOUNTS_TABLE = "accounts";
 const PAYMENT_TRANSACTIONS_TABLE = "payment_transactions";
 const LEDGER_ENTRIES_TABLE = "ledger_entries";
@@ -19,7 +20,6 @@ function debugDetails(extras) {
 }
 
 export function resolveCurrentUser(req) {
-  if (isProduction()) return null;
   const userId = req.headers["x-demo-user-id"];
   return ALL_USERS.find((u) => u.id === userId) ?? demoUser;
 }

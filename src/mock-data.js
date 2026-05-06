@@ -1,7 +1,8 @@
 export const SUPPORTED_CURRENCIES = ["EUR", "USD", "GBP"];
 
-export const demoUser = {
-  id: "demo_user_001",
+export const users = [
+  {
+    id: "user_001",
   fullName: "Ayla Demir",
   email: "ayla.demo@loviepay.test",
   password: "1234",
@@ -10,8 +11,8 @@ export const demoUser = {
   avatarLabel: "AD",
   receiverAccounts: [
     {
-      id: "acct_eur_main",
-      ownerId: "demo_user_001",
+      id: "user_001_acct_eur",
+      ownerId: "user_001",
       label: "Everyday EUR",
       displayName: "Everyday EUR",
       accountNumber: "FI21 1234 5600 0007 85",
@@ -20,8 +21,8 @@ export const demoUser = {
       balance: 412
     },
     {
-      id: "acct_usd_travel",
-      ownerId: "demo_user_001",
+      id: "user_001_acct_usd",
+      ownerId: "user_001",
       label: "Travel USD",
       displayName: "Travel USD",
       accountNumber: "US42 9988 7766 5544 33",
@@ -30,8 +31,8 @@ export const demoUser = {
       balance: 280
     },
     {
-      id: "acct_gbp_family",
-      ownerId: "demo_user_001",
+      id: "user_001_acct_gbp",
+      ownerId: "user_001",
       label: "Family GBP",
       displayName: "Family GBP",
       accountNumber: "GB29 NWBK 6016 1331 9268 19",
@@ -40,12 +41,10 @@ export const demoUser = {
       balance: 56
     }
   ],
-  friends: ["friend_001", "friend_002", "friend_003", "friend_004", "friend_005", "friend_006", "friend_007"]
-};
-
-export const friends = [
+  friends: ["user_002", "user_003", "user_004", "user_005", "user_006", "user_007", "user_008"]
+  },
   {
-    id: "friend_001",
+    id: "user_002",
     fullName: "Mika Korhonen",
     email: "mika.korhonen@example.test",
     password: "1234",
@@ -54,13 +53,13 @@ export const friends = [
     customerNumber: "LP-319042",
     avatarLabel: "MK",
     receiverAccounts: [
-      { id: "friend_001_acct_eur", ownerId: "friend_001", label: "Everyday EUR", displayName: "Everyday EUR", accountNumber: "FI19 1010 0001 0001 11", accountType: "current_account", currency: "EUR", balance: 1000 },
-      { id: "friend_001_acct_usd", ownerId: "friend_001", label: "Travel USD", displayName: "Travel USD", accountNumber: "US10 0001 0001 0001 0102", accountType: "current_account", currency: "USD", balance: 1000 }
+      { id: "user_002_acct_eur", ownerId: "user_002", label: "Everyday EUR", displayName: "Everyday EUR", accountNumber: "FI19 1010 0001 0001 11", accountType: "current_account", currency: "EUR", balance: 1000 },
+      { id: "user_002_acct_usd", ownerId: "user_002", label: "Travel USD", displayName: "Travel USD", accountNumber: "US10 0001 0001 0001 0102", accountType: "current_account", currency: "USD", balance: 1000 }
     ],
-    friends: ["demo_user_001", "friend_002", "friend_005"]
+    friends: ["user_001", "user_003", "user_006"]
   },
   {
-    id: "friend_002",
+    id: "user_003",
     fullName: "Leila Santos",
     email: "leila.santos@example.test",
     password: "1234",
@@ -69,13 +68,13 @@ export const friends = [
     customerNumber: "LP-472815",
     avatarLabel: "LS",
     receiverAccounts: [
-      { id: "friend_002_acct_eur", ownerId: "friend_002", label: "Main EUR", displayName: "Main EUR", accountNumber: "FI19 1010 0002 0001 11", accountType: "current_account", currency: "EUR", balance: 1000 },
-      { id: "friend_002_acct_gbp", ownerId: "friend_002", label: "GBP Savings", displayName: "GBP Savings", accountNumber: "GB29 NWBK 0002 0002 0202 02", accountType: "term_deposit", currency: "GBP", balance: 1000 }
+      { id: "user_003_acct_eur", ownerId: "user_003", label: "Main EUR", displayName: "Main EUR", accountNumber: "FI19 1010 0002 0001 11", accountType: "current_account", currency: "EUR", balance: 1000 },
+      { id: "user_003_acct_gbp", ownerId: "user_003", label: "GBP Savings", displayName: "GBP Savings", accountNumber: "GB29 NWBK 0002 0002 0202 02", accountType: "term_deposit", currency: "GBP", balance: 1000 }
     ],
-    friends: ["friend_001", "friend_003", "friend_006"]
+    friends: ["user_002", "user_004", "user_007"]
   },
   {
-    id: "friend_003",
+    id: "user_004",
     fullName: "Jonas Berg",
     email: "jonas.berg@example.test",
     password: "1234",
@@ -84,14 +83,14 @@ export const friends = [
     customerNumber: "LP-538290",
     avatarLabel: "JB",
     receiverAccounts: [
-      { id: "friend_003_acct_eur", ownerId: "friend_003", label: "Personal EUR", displayName: "Personal EUR", accountNumber: "FI19 1010 0003 0001 11", accountType: "current_account", currency: "EUR", balance: 1000 },
-      { id: "friend_003_acct_usd", ownerId: "friend_003", label: "USD Account", displayName: "USD Account", accountNumber: "US10 0003 0003 0003 0103", accountType: "current_account", currency: "USD", balance: 1000 },
-      { id: "friend_003_acct_gbp", ownerId: "friend_003", label: "Family GBP", displayName: "Family GBP", accountNumber: "GB29 NWBK 0003 0003 0303 03", accountType: "term_deposit", currency: "GBP", balance: 1000 }
+      { id: "user_004_acct_eur", ownerId: "user_004", label: "Personal EUR", displayName: "Personal EUR", accountNumber: "FI19 1010 0003 0001 11", accountType: "current_account", currency: "EUR", balance: 1000 },
+      { id: "user_004_acct_usd", ownerId: "user_004", label: "USD Account", displayName: "USD Account", accountNumber: "US10 0003 0003 0003 0103", accountType: "current_account", currency: "USD", balance: 1000 },
+      { id: "user_004_acct_gbp", ownerId: "user_004", label: "Family GBP", displayName: "Family GBP", accountNumber: "GB29 NWBK 0003 0003 0303 03", accountType: "term_deposit", currency: "GBP", balance: 1000 }
     ],
-    friends: ["demo_user_001", "friend_002", "friend_007"]
+    friends: ["user_001", "user_003", "user_008"]
   },
   {
-    id: "friend_004",
+    id: "user_005",
     fullName: "Noora Laine",
     email: "noora.laine@example.test",
     password: "1234",
@@ -100,12 +99,12 @@ export const friends = [
     customerNumber: "LP-601734",
     avatarLabel: "NL",
     receiverAccounts: [
-      { id: "friend_004_acct_eur", ownerId: "friend_004", label: "Main EUR", displayName: "Main EUR", accountNumber: "FI19 1010 0004 0001 11", accountType: "current_account", currency: "EUR", balance: 1000 }
+      { id: "user_005_acct_eur", ownerId: "user_005", label: "Main EUR", displayName: "Main EUR", accountNumber: "FI19 1010 0004 0001 11", accountType: "current_account", currency: "EUR", balance: 1000 }
     ],
-    friends: ["friend_005", "friend_006"]
+    friends: ["user_006", "user_007"]
   },
   {
-    id: "friend_005",
+    id: "user_006",
     fullName: "Pekka Aalto",
     email: "pekka.aalto@example.test",
     password: "1234",
@@ -114,13 +113,13 @@ export const friends = [
     customerNumber: "LP-714561",
     avatarLabel: "PA",
     receiverAccounts: [
-      { id: "friend_005_acct_eur", ownerId: "friend_005", label: "Everyday EUR", displayName: "Everyday EUR", accountNumber: "FI19 1010 0005 0001 11", accountType: "current_account", currency: "EUR", balance: 1000 },
-      { id: "friend_005_acct_usd", ownerId: "friend_005", label: "Travel USD", displayName: "Travel USD", accountNumber: "US10 0005 0005 0005 0105", accountType: "current_account", currency: "USD", balance: 1000 }
+      { id: "user_006_acct_eur", ownerId: "user_006", label: "Everyday EUR", displayName: "Everyday EUR", accountNumber: "FI19 1010 0005 0001 11", accountType: "current_account", currency: "EUR", balance: 1000 },
+      { id: "user_006_acct_usd", ownerId: "user_006", label: "Travel USD", displayName: "Travel USD", accountNumber: "US10 0005 0005 0005 0105", accountType: "current_account", currency: "USD", balance: 1000 }
     ],
-    friends: ["demo_user_001", "friend_001", "friend_004"]
+    friends: ["user_001", "user_002", "user_005"]
   },
   {
-    id: "friend_006",
+    id: "user_007",
     fullName: "Sara Lindqvist",
     email: "sara.lindqvist@example.test",
     password: "1234",
@@ -129,13 +128,13 @@ export const friends = [
     customerNumber: "LP-823407",
     avatarLabel: "SL",
     receiverAccounts: [
-      { id: "friend_006_acct_eur", ownerId: "friend_006", label: "Main EUR", displayName: "Main EUR", accountNumber: "FI19 1010 0006 0001 11", accountType: "current_account", currency: "EUR", balance: 1000 },
-      { id: "friend_006_acct_gbp", ownerId: "friend_006", label: "GBP Account", displayName: "GBP Account", accountNumber: "GB29 NWBK 0006 0006 0606 06", accountType: "current_account", currency: "GBP", balance: 1000 }
+      { id: "user_007_acct_eur", ownerId: "user_007", label: "Main EUR", displayName: "Main EUR", accountNumber: "FI19 1010 0006 0001 11", accountType: "current_account", currency: "EUR", balance: 1000 },
+      { id: "user_007_acct_gbp", ownerId: "user_007", label: "GBP Account", displayName: "GBP Account", accountNumber: "GB29 NWBK 0006 0006 0606 06", accountType: "current_account", currency: "GBP", balance: 1000 }
     ],
-    friends: ["friend_002", "friend_004", "friend_007"]
+    friends: ["user_003", "user_005", "user_008"]
   },
   {
-    id: "friend_007",
+    id: "user_008",
     fullName: "Tomas Virtanen",
     email: "tomas.virtanen@example.test",
     password: "1234",
@@ -144,20 +143,20 @@ export const friends = [
     customerNumber: "LP-937182",
     avatarLabel: "TV",
     receiverAccounts: [
-      { id: "friend_007_acct_eur", ownerId: "friend_007", label: "Personal EUR", displayName: "Personal EUR", accountNumber: "FI19 1010 0007 0001 11", accountType: "current_account", currency: "EUR", balance: 1000 },
-      { id: "friend_007_acct_usd", ownerId: "friend_007", label: "USD Savings", displayName: "USD Savings", accountNumber: "US10 0007 0007 0007 0107", accountType: "term_deposit", currency: "USD", balance: 1000 },
-      { id: "friend_007_acct_gbp", ownerId: "friend_007", label: "GBP Account", displayName: "GBP Account", accountNumber: "GB29 NWBK 0007 0007 0707 07", accountType: "current_account", currency: "GBP", balance: 1000 }
+      { id: "user_008_acct_eur", ownerId: "user_008", label: "Personal EUR", displayName: "Personal EUR", accountNumber: "FI19 1010 0007 0001 11", accountType: "current_account", currency: "EUR", balance: 1000 },
+      { id: "user_008_acct_usd", ownerId: "user_008", label: "USD Savings", displayName: "USD Savings", accountNumber: "US10 0007 0007 0007 0107", accountType: "term_deposit", currency: "USD", balance: 1000 },
+      { id: "user_008_acct_gbp", ownerId: "user_008", label: "GBP Account", displayName: "GBP Account", accountNumber: "GB29 NWBK 0007 0007 0707 07", accountType: "current_account", currency: "GBP", balance: 1000 }
     ],
-    friends: ["demo_user_001", "friend_003", "friend_006"]
+    friends: ["user_001", "user_004", "user_007"]
   }
 ];
 
 export const paymentRequests = [
   {
     id: "e039ca67-aa00-4bb6-a69f-86051c725ea4",
-    senderId: demoUser.id,
-    recipientId: "friend_001",
-    receiverAccountId: "acct_eur_main",
+    senderId: "user_001",
+    recipientId: "user_002",
+    receiverAccountId: "user_001_acct_eur",
     amount: 125.5,
     currency: "EUR",
     note: "Dinner split",
@@ -169,9 +168,9 @@ export const paymentRequests = [
   },
   {
     id: "4ef20f5a-830b-4867-a0ec-d3ea6b6ea4e6",
-    senderId: demoUser.id,
-    recipientId: "friend_002",
-    receiverAccountId: "acct_usd_travel",
+    senderId: "user_001",
+    recipientId: "user_003",
+    receiverAccountId: "user_001_acct_usd",
     amount: 48.75,
     currency: "USD",
     note: "Taxi share",
@@ -183,9 +182,9 @@ export const paymentRequests = [
   },
   {
     id: "35eda6a1-6831-4467-8488-6f2fd8976251",
-    senderId: demoUser.id,
-    recipientId: "friend_003",
-    receiverAccountId: "acct_gbp_family",
+    senderId: "user_001",
+    recipientId: "user_004",
+    receiverAccountId: "user_001_acct_gbp",
     amount: 210,
     currency: "GBP",
     note: "",
@@ -197,9 +196,9 @@ export const paymentRequests = [
   },
   {
     id: "33b2d1b5-cc13-4e06-af1d-f4b2c52e79e1",
-    senderId: "friend_001",
-    recipientId: demoUser.id,
-    receiverAccountId: "friend_001_acct_eur",
+    senderId: "user_002",
+    recipientId: "user_001",
+    receiverAccountId: "user_002_acct_eur",
     amount: 88,
     currency: "EUR",
     note: "Concert ticket",
@@ -211,9 +210,9 @@ export const paymentRequests = [
   },
   {
     id: "a5099a43-d5d1-494a-b4cf-533c16eaf721",
-    senderId: "friend_005",
-    recipientId: demoUser.id,
-    receiverAccountId: "friend_005_acct_usd",
+    senderId: "user_006",
+    recipientId: "user_001",
+    receiverAccountId: "user_006_acct_usd",
     amount: 32.4,
     currency: "USD",
     note: "Birthday gift split",
@@ -225,9 +224,9 @@ export const paymentRequests = [
   },
   {
     id: "8ee581ea-8fb8-46bb-b4f8-8bbf488007b6",
-    senderId: "friend_006",
-    recipientId: demoUser.id,
-    receiverAccountId: "friend_006_acct_gbp",
+    senderId: "user_007",
+    recipientId: "user_001",
+    receiverAccountId: "user_007_acct_gbp",
     amount: 56,
     currency: "GBP",
     note: "Boundary case (exactly 7 days)",
@@ -239,9 +238,9 @@ export const paymentRequests = [
   },
   {
     id: "d9ba4e1b-ecd4-4fe8-a13d-f8d7c69d1fe6",
-    senderId: "friend_007",
-    recipientId: demoUser.id,
-    receiverAccountId: "friend_007_acct_eur",
+    senderId: "user_008",
+    recipientId: "user_001",
+    receiverAccountId: "user_008_acct_eur",
     amount: 145.75,
     currency: "EUR",
     note: "Old shared dinner",

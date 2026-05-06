@@ -1,11 +1,12 @@
-import { demoUser, friends } from "../src/mock-data.js";
+import { users } from "../src/mock-data.js";
 import {
   findActiveRecipient,
   findReceiverAccount,
   parseAmount
 } from "../src/payment-request.js";
 
-const ALL_USERS = [demoUser, ...friends];
+const ALL_USERS = users;
+const demoUser = users[0];
 
 export const SERVER_DERIVED_FIELDS = new Set([
   "senderId",
