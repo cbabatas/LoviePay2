@@ -30,6 +30,7 @@ test.describe("create payment request desktop flow", () => {
       });
       expect(payload.currency).toBeUndefined();
 
+      await new Promise((resolve) => setTimeout(resolve, 150));
       await route.fulfill({
         status: 201,
         contentType: "application/json",
@@ -57,8 +58,10 @@ test.describe("create payment request desktop flow", () => {
 
     await selectRecipient(page, "Mika", "Mika Korhonen");
     await page.getByLabel("Receiver account").selectOption("acct_eur_main");
-    await expect(page.locator("#derived-currency")).toHaveText("EUR");
+    await expect(page.locator("#derived-currency")).toHaveText("€ EUR");
     await page.getByLabel("Amount").fill("125.50");
+    await page.getByLabel("Amount").blur();
+    await expect(page.getByLabel("Amount")).toHaveValue("125.50");
     await page.getByLabel("Note").fill("Dinner split");
     await page.getByRole("button", { name: "Create payment request" }).click();
 
@@ -68,6 +71,14 @@ test.describe("create payment request desktop flow", () => {
     await expect(page.locator("#success-state")).toContainText("€125.50");
     await expect(page.locator("#success-state")).toContainText("pending");
     await expect(page.locator("#success-state")).toContainText("/r/hash_desktop_happy_path");
+    await expect(page.locator("#success-state")).not.toContainText("Hash:");
+
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+    await page.getByRole("button", { name: "Copy" }).click();
+    await expect(page.locator("#copy-status")).toHaveText("Copied");
+    await expect(page.evaluate(() => navigator.clipboard.readText())).resolves.toContain(
+      "/r/hash_desktop_happy_path"
+    );
   });
 
   test("searches active friends by name, email, and phone with single selection", async ({ page }) => {
@@ -83,8 +94,9 @@ test.describe("create payment request desktop flow", () => {
 
     await selectRecipient(page, "+358 40", "Mika Korhonen");
     await expect(page.locator("#selected-recipient")).toContainText("Mika Korhonen");
-    await expect(page.locator(".recipient-result.is-selected")).toHaveCount(1);
+    await expect(page.locator(".recipient-result")).toHaveCount(0);
 
+    await page.getByRole("button", { name: "Change" }).click();
     await page.getByLabel("Recipient").fill("does-not-match");
     await expect(page.locator("#recipient-results-empty")).toHaveText("No active friends found.");
   });
@@ -114,7 +126,7 @@ test.describe("create payment request desktop flow", () => {
 
     await selectRecipient(page, "Mika", "Mika Korhonen");
     await page.getByLabel("Receiver account").selectOption("acct_usd_travel");
-    await expect(page.locator("#derived-currency")).toHaveText("USD");
+    await expect(page.locator("#derived-currency")).toHaveText("$ USD");
 
     for (const amount of ["0", "-5", "abc", "1000000"]) {
       await page.getByLabel("Amount").fill(amount);
@@ -152,5 +164,33 @@ test.describe("create payment request desktop flow", () => {
       "This friend cannot receive a new payment request."
     );
     await expect(page.locator("#success-state")).toHaveCount(0);
+  });
+
+  test("formats amount, limits note, updates summary, and resets form while keeping session", async ({
+    page
+  }) => {
+    await signIn(page);
+    await selectRecipient(page, "Mika", "Mika Korhonen");
+    await page.getByLabel("Receiver account").selectOption("acct_eur_main");
+    await page.getByLabel("Amount").fill("1000.5");
+    await page.getByLabel("Amount").blur();
+    await expect(page.getByLabel("Amount")).toHaveValue("1,000.50");
+    await expect(page.getByLabel("Request summary")).toContainText("€1,000.50");
+
+    await page.getByLabel("Note").fill("x".repeat(120));
+    await expect(page.getByLabel("Note")).toHaveValue("x".repeat(100));
+    await expect(page.locator("#note-count")).toHaveText("100/100");
+
+    await page.getByRole("link", { name: "Payment request" }).click();
+    await expect(page.getByRole("heading", { name: "Payment request" })).toBeVisible();
+    await expect(page.locator("#selected-recipient")).toHaveCount(0);
+    await expect(page.getByLabel("Amount")).toHaveValue("");
+
+    await selectRecipient(page, "Leila", "Leila Santos");
+    await page.getByLabel("Amount").fill("55");
+    await page.reload();
+    await expect(page.getByRole("heading", { name: "Payment request" })).toBeVisible();
+    await expect(page.locator("#selected-recipient")).toHaveCount(0);
+    await expect(page.getByLabel("Amount")).toHaveValue("");
   });
 });

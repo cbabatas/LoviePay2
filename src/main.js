@@ -1,17 +1,21 @@
 import { demoUser, friends } from "./mock-data.js";
 import {
   ERROR_MESSAGES,
+  currencySymbol,
   deriveCurrency,
   formatAmount,
+  formatPlainAmount,
   searchFriends,
   validatePaymentRequestForm
 } from "./payment-request.js";
 import { createPaymentRequest } from "./request-api.js";
 
 const app = document.querySelector("#app");
+const SESSION_KEY = "loviepay.demoSignedIn";
+const NOTE_LIMIT = 100;
 
 const state = {
-  signedIn: false,
+  signedIn: sessionStorage.getItem(SESSION_KEY) === "true",
   signInError: "",
   searchQuery: "",
   selectedRecipientId: "",
@@ -21,7 +25,8 @@ const state = {
   errors: {},
   isSubmitting: false,
   submitError: "",
-  success: null
+  success: null,
+  copyMessage: ""
 };
 
 function escapeHtml(value) {
@@ -40,6 +45,36 @@ function selectedRecipient() {
 function fieldError(name) {
   const code = state.errors[name];
   return code ? ERROR_MESSAGES[code] ?? ERROR_MESSAGES.request_creation_failed : "";
+}
+
+function requestedAmountText(currency = deriveCurrency(state.receiverAccountId)) {
+  const validation = validatePaymentRequestForm({
+    recipientId: state.selectedRecipientId || "friend_001",
+    receiverAccountId: state.receiverAccountId || "acct_eur_main",
+    amount: state.amount || "0",
+    note: state.note
+  });
+
+  return currency && validation.value?.amount
+    ? formatAmount(validation.value.amount, currency)
+    : "Not entered";
+}
+
+function resetRequestState() {
+  state.searchQuery = "";
+  state.selectedRecipientId = "";
+  state.receiverAccountId = "";
+  state.amount = "";
+  state.note = "";
+  state.errors = {};
+  state.isSubmitting = false;
+  state.submitError = "";
+  state.success = null;
+  state.copyMessage = "";
+}
+
+function requiredLabel(text) {
+  return `${escapeHtml(text)} <span class="required-marker" aria-hidden="true">*</span>`;
 }
 
 function render() {
@@ -93,8 +128,9 @@ function renderWorkspace() {
     .join("");
   const currency = deriveCurrency(state.receiverAccountId);
   const recipient = selectedRecipient();
-  const results = searchFriends(state.searchQuery);
-  const hasSearch = state.searchQuery.trim().length > 0;
+  const results = recipient ? [] : searchFriends(state.searchQuery);
+  const hasSearch = !recipient && state.searchQuery.trim().length > 0;
+  const amountSummary = requestedAmountText(currency);
 
   return `
     <div class="app-shell">
@@ -122,7 +158,7 @@ function renderWorkspace() {
         <section class="request-layout">
           <form id="request-form" class="request-form" novalidate>
             <div class="field-group">
-              <label for="recipient-search">Recipient</label>
+              <label for="recipient-search">${requiredLabel("Recipient")}</label>
               <input
                 id="recipient-search"
                 name="recipientSearch"
@@ -139,7 +175,7 @@ function renderWorkspace() {
 
             <div class="two-column">
               <div class="field-group">
-                <label for="receiver-account">Receiver account</label>
+                <label for="receiver-account">${requiredLabel("Receiver account")}</label>
                 <select id="receiver-account" name="receiverAccountId" aria-describedby="receiver-account-error">
                   <option value="">Select account</option>
                   ${accountOptions}
@@ -149,27 +185,32 @@ function renderWorkspace() {
               <div class="field-group">
                 <span class="field-label">Currency</span>
                 <output id="derived-currency" class="derived-value" aria-live="polite">
-                  ${currency ? escapeHtml(currency) : "Select account"}
+                  ${currency ? `${escapeHtml(currencySymbol(currency))} ${escapeHtml(currency)}` : "Select account"}
                 </output>
               </div>
             </div>
 
             <div class="field-group">
-              <label for="amount">Amount</label>
-              <input
-                id="amount"
-                name="amount"
-                type="text"
-                inputmode="decimal"
-                value="${escapeHtml(state.amount)}"
-                aria-describedby="amount-error"
-              />
+              <label for="amount">${requiredLabel("Amount")}</label>
+              <div class="amount-control">
+                <span class="amount-symbol" aria-hidden="true">${escapeHtml(currencySymbol(currency))}</span>
+                <input
+                  id="amount"
+                  name="amount"
+                  type="text"
+                  inputmode="decimal"
+                  placeholder="0.00"
+                  value="${escapeHtml(state.amount)}"
+                  aria-describedby="amount-error"
+                />
+              </div>
               ${renderInlineError("amount-error", fieldError("amount"))}
             </div>
 
             <div class="field-group">
               <label for="note">Note</label>
-              <textarea id="note" name="note" rows="4" maxlength="240">${escapeHtml(state.note)}</textarea>
+              <textarea id="note" name="note" rows="4" maxlength="${NOTE_LIMIT}" aria-describedby="note-count">${escapeHtml(state.note)}</textarea>
+              <p id="note-count" class="hint">${state.note.length}/${NOTE_LIMIT}</p>
             </div>
 
             ${
@@ -191,7 +232,11 @@ function renderWorkspace() {
               </div>
               <div>
                 <dt>Currency</dt>
-                <dd>${currency || "Not selected"}</dd>
+                <dd>${currency ? `${escapeHtml(currencySymbol(currency))} ${escapeHtml(currency)}` : "Not selected"}</dd>
+              </div>
+              <div>
+                <dt>Requested amount</dt>
+                <dd id="summary-amount">${escapeHtml(amountSummary)}</dd>
               </div>
               <div>
                 <dt>Status</dt>
@@ -208,6 +253,7 @@ function renderWorkspace() {
 }
 
 function renderRecipientResults(results, hasSearch) {
+  if (selectedRecipient()) return "";
   if (!hasSearch) return `<p class="hint">Search active friends to select one recipient.</p>`;
   if (results.length === 0) {
     return `<p id="recipient-results-empty" class="empty-state" role="status">No active friends found.</p>`;
@@ -241,8 +287,11 @@ function renderSelectedRecipient(recipient) {
 
   return `
     <div id="selected-recipient" class="selected-recipient" role="status">
-      <strong>${escapeHtml(recipient.fullName)}</strong>
-      <span>${escapeHtml(recipient.email)}</span>
+      <div>
+        <strong>${escapeHtml(recipient.fullName)}</strong>
+        <span>${escapeHtml(recipient.email)}</span>
+      </div>
+      <button type="button" class="secondary-action" id="change-recipient">Change</button>
     </div>
   `;
 }
@@ -272,10 +321,15 @@ function renderSuccess(paymentRequest) {
         </div>
         <div>
           <dt>Shareable link</dt>
-          <dd><a href="${escapeHtml(paymentRequest.shareableLink)}">${escapeHtml(paymentRequest.shareableLink)}</a></dd>
+          <dd>
+            <div class="share-link-row">
+              <a href="${escapeHtml(paymentRequest.shareableLink)}">${escapeHtml(paymentRequest.shareableLink)}</a>
+              <button type="button" class="secondary-action" id="copy-share-link">Copy</button>
+            </div>
+            <span id="copy-status" class="copy-status" aria-live="polite">${escapeHtml(state.copyMessage)}</span>
+          </dd>
         </div>
       </dl>
-      <p class="hash-line">Hash: <span>${escapeHtml(paymentRequest.hash)}</span></p>
     </section>
   `;
 }
@@ -289,7 +343,9 @@ function bindSignIn() {
 
     if (email === demoUser.email && password === demoUser.password) {
       state.signedIn = true;
+      sessionStorage.setItem(SESSION_KEY, "true");
       state.signInError = "";
+      resetRequestState();
     } else {
       state.signInError = "Use the demo email and password for this workspace.";
     }
@@ -301,22 +357,36 @@ function bindSignIn() {
 function bindWorkspace() {
   document.querySelector(".sidebar-nav a").addEventListener("click", (event) => {
     event.preventDefault();
+    resetRequestState();
+    render();
   });
 
   document.querySelector("#recipient-search").addEventListener("input", (event) => {
     state.searchQuery = event.target.value;
     state.errors.recipientId = "";
     render();
-    document.querySelector("#recipient-search").focus();
+    const recipientSearch = document.querySelector("#recipient-search");
+    recipientSearch.focus();
+    recipientSearch.setSelectionRange(state.searchQuery.length, state.searchQuery.length);
   });
 
   document.querySelectorAll("[data-recipient-id]").forEach((button) => {
     button.addEventListener("click", () => {
       state.selectedRecipientId = button.dataset.recipientId;
+      state.searchQuery = "";
       state.errors.recipientId = "";
       state.submitError = "";
       render();
     });
+  });
+
+  document.querySelector("#change-recipient")?.addEventListener("click", () => {
+    state.selectedRecipientId = "";
+    state.searchQuery = "";
+    state.errors.recipientId = "";
+    state.submitError = "";
+    render();
+    document.querySelector("#recipient-search").focus();
   });
 
   document.querySelector("#receiver-account").addEventListener("change", (event) => {
@@ -327,16 +397,41 @@ function bindWorkspace() {
   });
 
   document.querySelector("#amount").addEventListener("input", (event) => {
-    state.amount = event.target.value;
+    state.amount = event.target.value.replace(/[^\d.,-]/g, "");
     state.errors.amount = "";
     state.submitError = "";
+    document.querySelector("#summary-amount").textContent = requestedAmountText();
+  });
+
+  document.querySelector("#amount").addEventListener("blur", (event) => {
+    state.amount = formatPlainAmount(event.target.value);
+    event.target.value = state.amount;
+    document.querySelector("#summary-amount").textContent = requestedAmountText();
   });
 
   document.querySelector("#note").addEventListener("input", (event) => {
-    state.note = event.target.value;
+    state.note = event.target.value.slice(0, NOTE_LIMIT);
+    event.target.value = state.note;
+    document.querySelector("#note-count").textContent = `${state.note.length}/${NOTE_LIMIT}`;
   });
 
   document.querySelector("#request-form").addEventListener("submit", submitRequest);
+
+  document.querySelector("#copy-share-link")?.addEventListener("click", copyShareableLink);
+}
+
+async function copyShareableLink() {
+  if (!state.success?.shareableLink) return;
+
+  const absoluteUrl = new URL(state.success.shareableLink, window.location.origin).toString();
+  try {
+    await navigator.clipboard.writeText(absoluteUrl);
+    state.copyMessage = "Copied";
+  } catch {
+    state.copyMessage = "Copy failed";
+  }
+
+  render();
 }
 
 async function submitRequest(event) {

@@ -17,11 +17,15 @@ export function normalizeSearch(value) {
 }
 
 export function parseAmount(value) {
-  if (value === null || value === undefined || String(value).trim() === "") {
+  const normalizedValue = String(value ?? "")
+    .replace(/[^\d.-]/g, "")
+    .trim();
+
+  if (normalizedValue === "") {
     return { ok: false, code: "invalid_amount" };
   }
 
-  const amount = Number(value);
+  const amount = Number(normalizedValue);
   if (!Number.isFinite(amount) || amount <= 0 || amount >= 1_000_000) {
     return { ok: false, code: "invalid_amount" };
   }
@@ -102,9 +106,33 @@ export function validatePaymentRequestForm(payload, options = {}) {
 }
 
 export function formatAmount(amount, currency) {
-  return new Intl.NumberFormat("en", {
+  return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency,
+    minimumFractionDigits: 2,
     maximumFractionDigits: 2
   }).format(amount);
+}
+
+export function formatPlainAmount(value) {
+  const amount = parseAmount(value);
+  if (!amount.ok) return String(value ?? "");
+
+  return new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(amount.amount);
+}
+
+export function currencySymbol(currency) {
+  if (!currency) return "$";
+
+  const parts = new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0
+  }).formatToParts(0);
+
+  return parts.find((part) => part.type === "currency")?.value ?? currency;
 }

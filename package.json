@@ -7,7 +7,9 @@
     "check": "node scripts/check-js.mjs",
     "test:api": "node --test tests/api/payment-requests.validation.test.js",
     "test:e2e:desktop": "playwright test --config=playwright.config.js",
-    "dev": "vite --host 127.0.0.1"
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "preview": "vite preview"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.49.4",
