@@ -506,8 +506,26 @@ export async function payIncomingPaymentRequest(id, payload, options = {}) {
     .eq("recipient_id", currentUser.id)
     .maybeSingle();
 
-  if (existing.error) return requestErrorResult("incoming_detail_failed", 500);
-  if (!existing.data) return requestErrorResult("request_not_found", 404);
+  if (existing.error) {
+    return requestErrorResult("incoming_detail_failed", 500, {
+      debug: {
+        step: "fetch_payment_request",
+        message: existing.error?.message ?? null,
+        code: existing.error?.code ?? null,
+        details: existing.error?.details ?? null,
+        hint: existing.error?.hint ?? null
+      }
+    });
+  }
+  if (!existing.data) {
+    return requestErrorResult("request_not_found", 404, {
+      debug: {
+        step: "fetch_payment_request",
+        id,
+        recipientId: currentUser?.id
+      }
+    });
+  }
 
   const promoted = await promoteExpiredOnRead(supabase, existing.data, now);
 
@@ -544,7 +562,14 @@ export async function payIncomingPaymentRequest(id, payload, options = {}) {
 
   if (!account) {
     return requestErrorResult("source_account_not_found", 404, {
-      paymentRequest: shapeWithDerivedFields(promoted, now)
+      paymentRequest: shapeWithDerivedFields(promoted, now),
+      debug: {
+        step: "fetch_source_account",
+        sourceAccountId,
+        currentUserId: currentUser?.id,
+        receiverAccountIds: (currentUser?.receiverAccounts ?? []).map((a) => a.id),
+        supabaseError: persistedAccount.error?.message ?? null
+      }
     });
   }
 
@@ -583,7 +608,16 @@ export async function payIncomingPaymentRequest(id, payload, options = {}) {
     .maybeSingle();
 
   if (requestUpdate.error || !requestUpdate.data) {
-    return requestErrorResult("payment_processing_failed", 500);
+    return requestErrorResult("payment_processing_failed", 500, {
+      debug: {
+        step: "update_payment_request",
+        message: requestUpdate.error?.message ?? null,
+        details: requestUpdate.error?.details ?? null,
+        hint: requestUpdate.error?.hint ?? null,
+        code: requestUpdate.error?.code ?? null,
+        rowReturned: Boolean(requestUpdate.data)
+      }
+    });
   }
 
   const newBalance = balance - requestAmount;
