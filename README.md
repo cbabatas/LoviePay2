@@ -124,4 +124,4 @@ vite.config.js
 
 ## Screen Recording
 
-_(To be added by the author.)_
+https://youtu.be/EXQ7YVYphUs
