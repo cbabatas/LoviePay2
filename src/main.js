@@ -227,12 +227,17 @@ function fieldError(name) {
 }
 
 function requestedAmountText(currency = deriveCurrency(state.receiverAccountId, state.currentUser)) {
-  const validation = validatePaymentRequestForm({
-    recipientId: state.selectedRecipientId || "user_002",
-    receiverAccountId: state.receiverAccountId || "user_001_acct_eur",
-    amount: state.amount || "0",
-    note: state.note
-  });
+  const fallbackRecipientId = state.currentUser?.friends?.[0] ?? "";
+  const fallbackAccountId = state.currentUser?.receiverAccounts?.[0]?.id ?? "";
+  const validation = validatePaymentRequestForm(
+    {
+      recipientId: state.selectedRecipientId || fallbackRecipientId,
+      receiverAccountId: state.receiverAccountId || fallbackAccountId,
+      amount: state.amount || "0",
+      note: state.note
+    },
+    { currentUser: state.currentUser }
+  );
 
   return currency && validation.value?.amount
     ? formatAmount(validation.value.amount, currency)
@@ -1453,12 +1458,15 @@ async function submitRequest(event) {
   event.preventDefault();
   if (state.isSubmitting) return;
 
-  const validation = validatePaymentRequestForm({
-    recipientId: state.selectedRecipientId,
-    receiverAccountId: state.receiverAccountId,
-    amount: state.amount,
-    note: state.note
-  });
+  const validation = validatePaymentRequestForm(
+    {
+      recipientId: state.selectedRecipientId,
+      receiverAccountId: state.receiverAccountId,
+      amount: state.amount,
+      note: state.note
+    },
+    { currentUser: state.currentUser }
+  );
 
   state.errors = validation.errors;
   state.submitError = "";
