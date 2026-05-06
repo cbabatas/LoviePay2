@@ -110,3 +110,27 @@ export async function withdrawPaymentRequest(id, options = {}) {
   });
   return body?.paymentRequest ?? null;
 }
+
+export async function fetchIncomingPaymentRequests(options = {}) {
+  const endpoint = options.endpoint ?? `${DEFAULT_PAYMENT_REQUEST_URL}?direction=incoming`;
+  const body = await requestJson(endpoint);
+  return body?.paymentRequests ?? [];
+}
+
+export async function fetchIncomingPaymentRequest(id, options = {}) {
+  const endpoint =
+    options.endpoint ??
+    `${DEFAULT_PAYMENT_REQUEST_URL}/${encodeURIComponent(id)}?direction=incoming`;
+  const body = await requestJson(endpoint);
+  return body?.paymentRequest ?? null;
+}
+
+export async function declineIncomingPaymentRequest(id, options = {}) {
+  const endpoint =
+    options.endpoint ?? `${DEFAULT_PAYMENT_REQUEST_URL}/${encodeURIComponent(id)}/decline`;
+  const body = await requestJson(endpoint, {
+    method: "PATCH",
+    body: JSON.stringify({ confirm: options.confirm === true })
+  });
+  return body?.paymentRequest ?? null;
+}
