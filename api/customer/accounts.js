@@ -1,6 +1,6 @@
-import { createSupabaseServerClient, includeDebugDetails } from "./supabase-client.js";
-import { ERROR_MESSAGES } from "../src/payment-request.js";
-import { demoUser, friends } from "../src/mock-data.js";
+import { createSupabaseServerClient, includeDebugDetails } from "../supabase-client.js";
+import { ERROR_MESSAGES } from "../../src/payment-request.js";
+import { demoUser, friends } from "../../src/mock-data.js";
 
 const ACCOUNTS_TABLE = "accounts";
 const ALL_USERS = [demoUser, ...friends];

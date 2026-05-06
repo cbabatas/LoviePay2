@@ -1,6 +1,6 @@
 import { defineConfig, loadEnv } from "vite";
 import paymentRequestsHandler from "./api/payment-requests.js";
-import customerAccountsHandler from "./api/customer-accounts.js";
+import customerAccountsHandler from "./api/customer/accounts.js";
 
 const SERVER_ENV_KEYS = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"];
 
