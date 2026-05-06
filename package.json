@@ -1,0 +1,19 @@
+{
+  "name": "loviepay2-create-payment-request",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node scripts/check-js.mjs",
+    "test:api": "node --test tests/api/payment-requests.validation.test.js",
+    "test:e2e:desktop": "playwright test --config=playwright.config.js",
+    "dev": "vite --host 127.0.0.1"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.49.4",
+    "vite": "^6.3.5"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.52.0"
+  }
+}

@@ -31,7 +31,16 @@
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-[Gates determined based on constitution file]
+- **Code Quality**: Does the approach follow existing project patterns, keep scope local,
+  and avoid unnecessary new abstractions?
+- **Testing**: What automated tests will prove the changed behavior, edge cases, and
+  regressions? If automation is impractical, what manual verification is documented?
+- **UX Consistency**: Which existing product patterns, labels, accessibility expectations,
+  and UI states does this feature follow?
+- **Performance**: What measurable performance budget applies, or why is this feature not
+  performance-sensitive?
+- **Simplicity**: Is this the smallest design that satisfies current requirements? Record
+  any justified complexity in the Complexity Tracking table.
 
 ## Project Structure
 

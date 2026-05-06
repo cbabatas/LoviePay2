@@ -1,50 +1,114 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+<!--
+Sync Impact Report
+Version change: template -> 1.0.0
+Modified principles:
+- template principle 1 -> I. Code Quality Is Required
+- template principle 2 -> II. Tests Prove Behavior
+- template principle 3 -> III. User Experience Stays Consistent
+- template principle 4 -> IV. Performance Has Budgets
+- template principle 5 -> V. Simplicity Before Abstraction
+Added sections:
+- Engineering Standards
+- Delivery Workflow
+Removed sections:
+- Placeholder Section 2
+- Placeholder Section 3
+Templates requiring updates:
+- ✅ .specify/templates/plan-template.md
+- ✅ .specify/templates/spec-template.md
+- ✅ .specify/templates/tasks-template.md
+- ✅ .specify/templates/commands/*.md (not present)
+- ✅ AGENTS.md
+Follow-up TODOs: none
+-->
+
+# LoviePay2 Constitution
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. Code Quality Is Required
+All production code MUST be readable, cohesive, and consistent with the existing project
+patterns. Names MUST describe intent, duplicated logic MUST be removed when the duplication
+creates maintenance risk, and public contracts MUST be explicit. Changes MUST stay scoped to
+the requested behavior unless a broader edit is required to keep the system correct.
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+Rationale: quality is maintained through clear, local decisions that make future changes
+cheaper without turning every change into a redesign.
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+### II. Tests Prove Behavior
+Every feature or bug fix MUST include automated tests for the behavior it changes, unless the
+plan documents why automation is impractical and lists the manual verification performed.
+Tests MUST cover the primary user path, important edge cases, and regressions found during
+implementation. Test code MUST be deterministic and run through the project-standard test
+commands.
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+Rationale: tests are the evidence that the implementation works and that future changes can
+be made with confidence.
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+### III. User Experience Stays Consistent
+User-facing changes MUST follow the existing product language, interaction patterns,
+accessibility expectations, and visual system. New UI states MUST cover loading, empty,
+error, and success outcomes when those states can occur. Copy MUST be clear and task-focused,
+and the same concept MUST use the same label across the product.
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+Rationale: consistency reduces user effort and prevents features from feeling unrelated or
+unfinished.
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+### IV. Performance Has Budgets
+Plans MUST state measurable performance goals for user-visible latency, throughput,
+resource use, or rendering smoothness when the feature can affect them. Implementations MUST
+avoid unnecessary work in critical paths, large unbounded payloads, and avoidable blocking
+operations. Performance-sensitive changes MUST include measurement or a documented reason
+why existing coverage is sufficient.
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+Rationale: performance is part of correctness for users, and budgets prevent vague late-stage
+tuning.
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+### V. Simplicity Before Abstraction
+The default solution MUST be the simplest design that satisfies the current validated
+requirements. New frameworks, layers, shared abstractions, background jobs, distributed
+components, or generalized configuration systems MUST have a written reason tied to an
+active requirement. Speculative extensibility and premature reuse are not acceptable
+justifications.
+
+Rationale: avoiding overengineering keeps delivery fast and makes the system easier to
+understand, test, and change.
+
+## Engineering Standards
+
+Implementation plans MUST identify the real project structure, standard commands, and
+dependencies before work begins. Code MUST pass formatting, linting, type checking, and test
+commands that are already established for the affected area. When no standard command exists,
+the plan MUST define the smallest useful verification command for the change.
+
+Data contracts, API boundaries, and user-visible behavior MUST be documented where they are
+introduced or changed. Error handling MUST be intentional: failures that users can act on
+MUST produce useful feedback, and failures that operators must diagnose MUST leave enough
+runtime evidence to investigate.
+
+## Delivery Workflow
+
+Work MUST be sliced by independently valuable user stories whenever possible. Each story
+MUST define acceptance criteria, test coverage, UX states, and any performance budget before
+implementation starts. Complexity that violates this constitution MUST be recorded in the
+plan with the simpler alternative that was rejected.
+
+Review MUST check constitution compliance before implementation and again before delivery.
+No feature is complete until its intended behavior is verified, existing behavior is not
+knowingly regressed, and any accepted gaps are documented in the plan or task list.
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+This constitution supersedes conflicting local practices for planning and delivery. Changes
+to the constitution MUST be made in `.specify/memory/constitution.md`, include a Sync Impact
+Report, and update dependent templates in the same change when their guidance is affected.
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+Versioning follows semantic versioning:
+- MAJOR for removing or redefining principles in a backward-incompatible way.
+- MINOR for adding principles, sections, or materially expanding governance.
+- PATCH for clarifications that do not change required behavior.
+
+Every plan, specification, task list, and review MUST treat the Core Principles as gates.
+Any exception MUST be explicit, justified, and limited to the smallest practical scope.
+
+**Version**: 1.0.0 | **Ratified**: 2026-05-06 | **Last Amended**: 2026-05-06
