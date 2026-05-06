@@ -496,7 +496,7 @@ dd {
 
 .outgoing-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) 108px;
   gap: 12px;
   align-items: center;
   padding: 14px;
@@ -531,7 +531,6 @@ dd {
 .row-actions {
   display: flex;
   justify-content: flex-end;
-  min-width: 100px;
 }
 
 .status-label {
