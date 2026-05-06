@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { createSupabaseServerClient } from "./supabase-client.js";
 import { validateCreatePaymentRequestPayload } from "./payment-request-validation.js";
 import {
@@ -7,9 +7,12 @@ import {
   computeExpiresAt,
   computeDaysRemaining
 } from "../src/payment-request.js";
-import { demoUser, friends } from "../src/mock-data.js";
+import { demoUser, friends, accountingAccounts } from "../src/mock-data.js";
 
 const ALL_USERS = [demoUser, ...friends];
+const ACCOUNTS_TABLE = "accounts";
+const PAYMENT_TRANSACTIONS_TABLE = "payment_transactions";
+const LEDGER_ENTRIES_TABLE = "ledger_entries";
 
 function resolveCurrentUser(req) {
   const userId = req.headers["x-demo-user-id"];
@@ -355,6 +358,294 @@ export async function declineIncomingPaymentRequest(id, payload, options = {}) {
   };
 }
 
+function toClientSourceAccount(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    displayName: row.display_name ?? row.displayName ?? row.label ?? "",
+    currency: row.currency,
+    balance: Number(row.balance),
+    accountCode: row.account_code ?? row.accountCode ?? ""
+  };
+}
+
+function toClientPaymentTransaction(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    paymentRequestId: row.payment_request_id ?? row.paymentRequestId,
+    type: row.type,
+    amount: Number(row.amount),
+    currency: row.currency,
+    status: row.status,
+    sourceAccountId: row.source_account_id ?? row.sourceAccountId,
+    createdAt: row.created_at ?? row.createdAt
+  };
+}
+
+function toClientLedgerEntry(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    transactionId: row.transaction_id ?? row.transactionId,
+    accountId: row.account_id ?? row.accountId,
+    entryType: row.entry_type ?? row.entryType,
+    amount: Number(row.amount),
+    currency: row.currency,
+    accountCode: row.account_code ?? row.accountCode,
+    createdAt: row.created_at ?? row.createdAt
+  };
+}
+
+async function fetchSourceAccount(supabase, accountId) {
+  const { data, error } = await supabase
+    .from(ACCOUNTS_TABLE)
+    .select("*")
+    .eq("id", accountId)
+    .maybeSingle();
+  return { data, error };
+}
+
+async function fetchExistingSuccessTransaction(supabase, paymentRequestId) {
+  const { data, error } = await supabase
+    .from(PAYMENT_TRANSACTIONS_TABLE)
+    .select("*")
+    .eq("payment_request_id", paymentRequestId)
+    .eq("status", "succeeded")
+    .maybeSingle();
+  return { data, error };
+}
+
+async function fetchLedgerEntriesForTransaction(supabase, transactionId) {
+  const { data, error } = await supabase
+    .from(LEDGER_ENTRIES_TABLE)
+    .select("*")
+    .eq("transaction_id", transactionId)
+    .order("created_at", { ascending: true });
+  return { data: data ?? [], error };
+}
+
+export async function payIncomingPaymentRequest(id, payload, options = {}) {
+  if (!id) return requestErrorResult("request_not_found", 404);
+  if (payload?.confirm !== true) {
+    return requestErrorResult("payment_confirmation_required", 400);
+  }
+
+  const currentUser = options.currentUser ?? demoUser;
+  const supabase = options.supabase ?? createSupabaseServerClient();
+  const now = (options.now ?? (() => new Date()))();
+  const generateId = options.generateId ?? (() => randomUUID());
+
+  const existing = await supabase
+    .from(PAYMENT_REQUESTS_TABLE)
+    .select("*")
+    .eq("id", id)
+    .eq("recipient_id", currentUser.id)
+    .maybeSingle();
+
+  if (existing.error) return requestErrorResult("incoming_detail_failed", 500);
+  if (!existing.data) return requestErrorResult("request_not_found", 404);
+
+  const promoted = await promoteExpiredOnRead(supabase, existing.data, now);
+
+  if (promoted.status === "paid") {
+    const txn = await fetchExistingSuccessTransaction(supabase, promoted.id);
+    return requestErrorResult("payment_already_completed", 409, {
+      paymentRequest: shapeWithDerivedFields(promoted, now),
+      paymentTransaction: txn.data ? toClientPaymentTransaction(txn.data) : null
+    });
+  }
+
+  if (promoted.status !== "pending") {
+    return requestErrorResult("payment_not_allowed", 409, {
+      paymentRequest: shapeWithDerivedFields(promoted, now)
+    });
+  }
+
+  const sourceAccountId = payload?.sourceAccountId ?? null;
+  if (!sourceAccountId) {
+    return requestErrorResult("source_account_required", 400, {
+      paymentRequest: shapeWithDerivedFields(promoted, now)
+    });
+  }
+
+  const accountResult = await fetchSourceAccount(supabase, sourceAccountId);
+  if (accountResult.error) {
+    return requestErrorResult("payment_processing_failed", 500);
+  }
+  const account = accountResult.data;
+  if (!account || account.owner_id !== currentUser.id) {
+    return requestErrorResult("source_account_not_found", 404, {
+      paymentRequest: shapeWithDerivedFields(promoted, now)
+    });
+  }
+
+  if (account.currency !== promoted.currency) {
+    return requestErrorResult("source_account_currency_mismatch", 409, {
+      paymentRequest: shapeWithDerivedFields(promoted, now),
+      sourceAccount: toClientSourceAccount(account)
+    });
+  }
+
+  const requestAmount = Number(promoted.amount);
+  const balance = Number(account.balance);
+  if (balance < requestAmount) {
+    return requestErrorResult("source_account_insufficient_balance", 409, {
+      paymentRequest: shapeWithDerivedFields(promoted, now),
+      sourceAccount: toClientSourceAccount(account)
+    });
+  }
+
+  const duplicate = await fetchExistingSuccessTransaction(supabase, promoted.id);
+  if (duplicate.error) {
+    return requestErrorResult("payment_processing_failed", 500);
+  }
+  if (duplicate.data) {
+    return requestErrorResult("payment_already_completed", 409, {
+      paymentRequest: shapeWithDerivedFields(promoted, now),
+      paymentTransaction: toClientPaymentTransaction(duplicate.data)
+    });
+  }
+
+  const updatedAt = now.toISOString();
+  const requestUpdate = await supabase
+    .from(PAYMENT_REQUESTS_TABLE)
+    .update({ status: "paid", updated_at: updatedAt })
+    .eq("id", id)
+    .eq("recipient_id", currentUser.id)
+    .eq("status", "pending")
+    .select()
+    .maybeSingle();
+
+  if (requestUpdate.error || !requestUpdate.data) {
+    return requestErrorResult("payment_processing_failed", 500);
+  }
+
+  const newBalance = balance - requestAmount;
+  const accountUpdate = await supabase
+    .from(ACCOUNTS_TABLE)
+    .update({ balance: newBalance, updated_at: updatedAt })
+    .eq("id", account.id)
+    .eq("owner_id", currentUser.id)
+    .select()
+    .maybeSingle();
+
+  if (accountUpdate.error || !accountUpdate.data) {
+    await supabase
+      .from(PAYMENT_REQUESTS_TABLE)
+      .update({ status: "pending", updated_at: existing.data.updated_at ?? updatedAt })
+      .eq("id", id)
+      .select()
+      .maybeSingle();
+    return requestErrorResult("payment_processing_failed", 500);
+  }
+
+  const transactionPayload = {
+    id: generateId(),
+    payment_request_id: id,
+    type: "payment",
+    amount: requestAmount,
+    currency: promoted.currency,
+    status: "succeeded",
+    source_account_id: account.id,
+    created_at: updatedAt
+  };
+
+  const transactionInsert = await supabase
+    .from(PAYMENT_TRANSACTIONS_TABLE)
+    .insert(transactionPayload)
+    .select()
+    .single();
+
+  if (transactionInsert.error || !transactionInsert.data) {
+    await supabase
+      .from(ACCOUNTS_TABLE)
+      .update({ balance, updated_at: account.updated_at ?? updatedAt })
+      .eq("id", account.id)
+      .select()
+      .maybeSingle();
+    await supabase
+      .from(PAYMENT_REQUESTS_TABLE)
+      .update({ status: "pending", updated_at: existing.data.updated_at ?? updatedAt })
+      .eq("id", id)
+      .select()
+      .maybeSingle();
+    if (transactionInsert.error?.code === "23505") {
+      const existingTxn = await fetchExistingSuccessTransaction(supabase, id);
+      return requestErrorResult("payment_already_completed", 409, {
+        paymentRequest: shapeWithDerivedFields(promoted, now),
+        paymentTransaction: existingTxn.data
+          ? toClientPaymentTransaction(existingTxn.data)
+          : null
+      });
+    }
+    return requestErrorResult("payment_processing_failed", 500);
+  }
+
+  const txnId = transactionInsert.data.id ?? transactionPayload.id;
+  const offsetAccount = accountingAccounts?.paymentRequestsExpense ?? {
+    id: "expense_payment_requests",
+    accountCode: "5000"
+  };
+
+  const debitEntry = {
+    id: generateId(),
+    transaction_id: txnId,
+    account_id: offsetAccount.id,
+    entry_type: "debit",
+    amount: requestAmount,
+    currency: promoted.currency,
+    account_code: offsetAccount.accountCode,
+    created_at: updatedAt
+  };
+
+  const creditEntry = {
+    id: generateId(),
+    transaction_id: txnId,
+    account_id: account.id,
+    entry_type: "credit",
+    amount: requestAmount,
+    currency: promoted.currency,
+    account_code: account.account_code,
+    created_at: updatedAt
+  };
+
+  const ledgerInsert = await supabase
+    .from(LEDGER_ENTRIES_TABLE)
+    .insert([debitEntry, creditEntry])
+    .select();
+
+  if (ledgerInsert.error) {
+    await supabase.from(PAYMENT_TRANSACTIONS_TABLE).delete().eq("id", txnId);
+    await supabase
+      .from(ACCOUNTS_TABLE)
+      .update({ balance, updated_at: account.updated_at ?? updatedAt })
+      .eq("id", account.id)
+      .select()
+      .maybeSingle();
+    await supabase
+      .from(PAYMENT_REQUESTS_TABLE)
+      .update({ status: "pending", updated_at: existing.data.updated_at ?? updatedAt })
+      .eq("id", id)
+      .select()
+      .maybeSingle();
+    return requestErrorResult("payment_processing_failed", 500);
+  }
+
+  const ledgerRows = Array.isArray(ledgerInsert.data) ? ledgerInsert.data : [debitEntry, creditEntry];
+
+  return {
+    ok: true,
+    statusCode: 200,
+    body: {
+      paymentRequest: shapeWithDerivedFields(requestUpdate.data, now),
+      sourceAccount: toClientSourceAccount(accountUpdate.data),
+      paymentTransaction: toClientPaymentTransaction(transactionInsert.data ?? transactionPayload),
+      ledgerEntries: ledgerRows.map(toClientLedgerEntry)
+    }
+  };
+}
+
 async function readBody(req) {
   if (req.body !== undefined) {
     if (typeof req.body === "string") {
@@ -407,6 +698,9 @@ export default async function handler(req, res) {
   } else if (req.method === "PATCH" && pathParts.length === 2 && pathParts[1] === "decline") {
     const payload = await readBody(req);
     result = await declineIncomingPaymentRequest(pathParts[0], payload, { currentUser });
+  } else if (req.method === "PATCH" && pathParts.length === 2 && pathParts[1] === "pay") {
+    const payload = await readBody(req);
+    result = await payIncomingPaymentRequest(pathParts[0], payload, { currentUser });
   } else {
     const allowed = pathParts.length === 0 ? "GET, POST" : "GET, PATCH";
     res.setHeader("Allow", allowed);

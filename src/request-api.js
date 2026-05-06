@@ -142,3 +142,16 @@ export async function declineIncomingPaymentRequest(id, options = {}) {
   });
   return body?.paymentRequest ?? null;
 }
+
+export async function payIncomingPaymentRequest(id, options = {}) {
+  const endpoint =
+    options.endpoint ?? `${DEFAULT_PAYMENT_REQUEST_URL}/${encodeURIComponent(id)}/pay`;
+  const body = await requestJson(endpoint, {
+    method: "PATCH",
+    body: JSON.stringify({
+      confirm: options.confirm === true,
+      sourceAccountId: options.sourceAccountId ?? null
+    })
+  });
+  return body ?? null;
+}
