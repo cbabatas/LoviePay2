@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { createSupabaseServerClient, includeDebugDetails, isProduction } from "../supabase-client.js";
+import { createSupabaseServerClient, includeDebugDetails } from "../supabase-client.js";
 import { validateCreatePaymentRequestPayload } from "../payment-request-validation.js";
 import {
   ERROR_MESSAGES,
@@ -19,7 +19,6 @@ function debugDetails(extras) {
 }
 
 export function resolveCurrentUser(req) {
-  if (isProduction()) return null;
   const userId = req.headers["x-demo-user-id"];
   return ALL_USERS.find((u) => u.id === userId) ?? demoUser;
 }

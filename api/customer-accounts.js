@@ -1,4 +1,4 @@
-import { createSupabaseServerClient, includeDebugDetails, isProduction } from "./supabase-client.js";
+import { createSupabaseServerClient, includeDebugDetails } from "./supabase-client.js";
 import { ERROR_MESSAGES } from "../src/payment-request.js";
 import { demoUser, friends } from "../src/mock-data.js";
 
@@ -6,7 +6,6 @@ const ACCOUNTS_TABLE = "accounts";
 const ALL_USERS = [demoUser, ...friends];
 
 export function resolveCurrentUser(req) {
-  if (isProduction()) return null;
   const userId = req.headers["x-demo-user-id"];
   return ALL_USERS.find((u) => u.id === userId) ?? demoUser;
 }
