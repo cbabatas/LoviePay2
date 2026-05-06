@@ -9,7 +9,20 @@ export const ERROR_MESSAGES = {
   receiver_account_required: "Select the account that should receive the payment.",
   receiver_account_not_found: "Select a valid receiver account.",
   unsupported_currency: "Select an account with a supported currency.",
-  request_creation_failed: "The request could not be created. Try again."
+  request_creation_failed: "The request could not be created. Try again.",
+  outgoing_list_failed: "Outgoing requests could not be loaded. Try again.",
+  outgoing_detail_failed: "Request details could not be loaded. Try again.",
+  request_not_found: "This outgoing request is unavailable.",
+  withdraw_confirmation_required: "Confirm withdrawal before updating this request.",
+  withdraw_not_allowed: "Only pending outgoing requests can be withdrawn.",
+  request_update_failed: "The request could not be updated. Try again.",
+  withdraw_failed: "The request could not be withdrawn. Try again.",
+  unavailable_action: "This request cannot be withdrawn because it is no longer pending."
+};
+
+export const PAYMENT_REQUEST_STATUS = {
+  pending: "pending",
+  withdrawn: "withdrawn"
 };
 
 export function normalizeSearch(value) {
@@ -135,4 +148,87 @@ export function currencySymbol(currency) {
   }).formatToParts(0);
 
   return parts.find((part) => part.type === "currency")?.value ?? currency;
+}
+
+export function findRecipientDisplay(recipientId, friendList = friends) {
+  const recipient = friendList.find((friend) => friend.id === recipientId);
+  return {
+    id: recipientId,
+    fullName: recipient?.fullName ?? "Unknown recipient",
+    email: recipient?.email ?? "",
+    phone: recipient?.phone ?? ""
+  };
+}
+
+export function formatStatusLabel(status) {
+  const normalized = normalizeSearch(status);
+  if (normalized === PAYMENT_REQUEST_STATUS.pending) return "pending";
+  if (normalized === PAYMENT_REQUEST_STATUS.withdrawn) return "withdrawn";
+  return String(status ?? "Unknown");
+}
+
+export function formatRequestDate(value) {
+  if (!value) return "Date unavailable";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Date unavailable";
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric"
+  }).format(date);
+}
+
+export function receiverAccountLabel(receiverAccountId, currentUser = demoUser) {
+  return (
+    currentUser.receiverAccounts.find((account) => account.id === receiverAccountId)?.label ??
+    "Account unavailable"
+  );
+}
+
+export function isOutgoingPaymentRequest(request, currentUser = demoUser) {
+  return request?.senderId === currentUser.id;
+}
+
+export function scopeOutgoingPaymentRequests(requests, currentUser = demoUser) {
+  return [...(requests ?? [])]
+    .filter((request) => isOutgoingPaymentRequest(request, currentUser))
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+}
+
+export function filterOutgoingPaymentRequests(requests, filters = {}, options = {}) {
+  const currentUser = options.currentUser ?? demoUser;
+  const friendList = options.friendList ?? friends;
+  const status = normalizeSearch(filters.status);
+  const recipientQuery = normalizeSearch(filters.recipientQuery);
+
+  return scopeOutgoingPaymentRequests(requests, currentUser).filter((request) => {
+    if (status && normalizeSearch(request.status) !== status) return false;
+    if (!recipientQuery) return true;
+
+    const recipient = findRecipientDisplay(request.recipientId, friendList);
+    const searchable = [
+      recipient.fullName,
+      recipient.email,
+      recipient.phone,
+      request.recipientId,
+      request.note,
+      request.status,
+      request.currency,
+      request.amount,
+      request.createdAt
+    ]
+      .map(normalizeSearch)
+      .join(" ");
+
+    return searchable.includes(recipientQuery);
+  });
+}
+
+export function canWithdrawPaymentRequest(request) {
+  return normalizeSearch(request?.status) === PAYMENT_REQUEST_STATUS.pending;
+}
+
+export function unavailableRequestMessage(errorCode) {
+  return ERROR_MESSAGES[errorCode] ?? ERROR_MESSAGES.request_not_found;
 }

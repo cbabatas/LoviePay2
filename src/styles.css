@@ -191,6 +191,11 @@ a:focus-visible {
   color: var(--accent-dark);
 }
 
+.secondary-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
 .banner {
   margin: 0;
   padding: 12px 14px;
@@ -202,6 +207,12 @@ a:focus-visible {
   color: var(--danger);
   background: var(--danger-bg);
   border-color: #ffc7bd;
+}
+
+.banner-success {
+  color: var(--accent-dark);
+  background: var(--success-bg);
+  border-color: var(--success-line);
 }
 
 .app-shell {
@@ -273,6 +284,30 @@ a:focus-visible {
   background: var(--panel);
   color: var(--muted);
   font-weight: 700;
+}
+
+.payment-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.tab-action {
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0 16px;
+  background: #fff;
+  color: var(--text);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.tab-action.is-active {
+  border-color: var(--accent);
+  background: var(--panel-soft);
+  color: var(--accent-dark);
 }
 
 .request-layout {
@@ -421,6 +456,193 @@ dd {
   background: var(--success-bg);
 }
 
+.outgoing-panel {
+  display: grid;
+  gap: 18px;
+  padding: 22px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.section-heading,
+.detail-header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.filter-bar {
+  display: grid;
+  grid-template-columns: minmax(160px, 220px) minmax(220px, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.filter-bar label {
+  display: grid;
+  gap: 8px;
+}
+
+.outgoing-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.outgoing-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.row-main {
+  display: grid;
+  grid-template-columns: minmax(110px, 150px) minmax(180px, 1fr) minmax(100px, 120px) minmax(110px, 140px);
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.row-main small,
+.row-main strong {
+  display: block;
+}
+
+.row-amount {
+  font-weight: 900;
+}
+
+.row-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.status-label {
+  width: fit-content;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 5px 10px;
+  background: var(--panel-soft);
+  color: var(--accent-dark);
+  font-weight: 800;
+}
+
+.status-withdrawn {
+  background: #f3f5f6;
+  color: var(--muted);
+}
+
+.danger-action,
+.danger-primary {
+  color: #fff;
+  background: var(--danger);
+}
+
+.danger-action {
+  border-color: var(--danger);
+}
+
+.danger-action:hover,
+.danger-primary:hover {
+  background: #8f1b12;
+}
+
+.ineligible-message {
+  max-width: 280px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.empty-block {
+  display: grid;
+  gap: 6px;
+  padding: 28px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.empty-block h2,
+.empty-block h3,
+.empty-block p {
+  margin: 0;
+}
+
+.detail-panel {
+  align-content: start;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin: 0;
+}
+
+.detail-grid div {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgb(24 33 38 / 42%);
+}
+
+.confirm-dialog {
+  width: min(100%, 430px);
+  display: grid;
+  gap: 14px;
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: var(--shadow);
+}
+
+.confirm-dialog h2,
+.confirm-dialog p {
+  margin: 0;
+}
+
+.dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .share-link-row {
   display: flex;
   flex-wrap: wrap;
@@ -454,6 +676,17 @@ dd {
   .workspace {
     padding: 24px;
   }
+
+  .filter-bar,
+  .outgoing-row,
+  .row-main,
+  .detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .row-actions {
+    justify-content: flex-start;
+  }
 }
 
 @media (max-width: 620px) {
@@ -472,5 +705,24 @@ dd {
 
   .workspace {
     padding: 18px;
+  }
+
+  .outgoing-panel,
+  .empty-block,
+  .confirm-dialog {
+    padding: 18px;
+  }
+
+  .primary-action,
+  .secondary-action,
+  .tab-action {
+    width: 100%;
+  }
+
+  .dialog-actions,
+  .detail-actions,
+  .payment-tabs {
+    display: grid;
+    grid-template-columns: 1fr;
   }
 }

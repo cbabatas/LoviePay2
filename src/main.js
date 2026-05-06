@@ -1,14 +1,25 @@
-import { demoUser, friends } from "./mock-data.js";
+import { demoUser, friends, paymentRequests } from "./mock-data.js";
 import {
   ERROR_MESSAGES,
+  canWithdrawPaymentRequest,
   currencySymbol,
   deriveCurrency,
+  filterOutgoingPaymentRequests,
+  findRecipientDisplay,
   formatAmount,
   formatPlainAmount,
-  searchFriends,
+  formatRequestDate,
+  formatStatusLabel,
+  receiverAccountLabel,
+  unavailableRequestMessage,
   validatePaymentRequestForm
 } from "./payment-request.js";
-import { createPaymentRequest } from "./request-api.js";
+import {
+  createPaymentRequest,
+  getOutgoingPaymentRequest,
+  listOutgoingPaymentRequests,
+  withdrawPaymentRequest
+} from "./request-api.js";
 
 const app = document.querySelector("#app");
 const SESSION_KEY = "loviepay.demoSignedIn";
@@ -17,6 +28,8 @@ const NOTE_LIMIT = 100;
 const state = {
   signedIn: sessionStorage.getItem(SESSION_KEY) === "true",
   signInError: "",
+  view: "create",
+  detailId: "",
   searchQuery: "",
   selectedRecipientId: "",
   receiverAccountId: "",
@@ -26,7 +39,22 @@ const state = {
   isSubmitting: false,
   submitError: "",
   success: null,
-  copyMessage: ""
+  copyMessage: "",
+  outgoing: {
+    loaded: false,
+    loading: false,
+    error: "",
+    items: [],
+    status: "",
+    recipientQuery: "",
+    detail: null,
+    detailLoading: false,
+    detailError: "",
+    withdraw: null,
+    withdrawing: false,
+    withdrawError: "",
+    successMessage: ""
+  }
 };
 
 function escapeHtml(value) {
@@ -73,6 +101,15 @@ function resetRequestState() {
   state.copyMessage = "";
 }
 
+function resetOutgoingTransient() {
+  state.outgoing.detail = null;
+  state.outgoing.detailError = "";
+  state.outgoing.detailLoading = false;
+  state.outgoing.withdraw = null;
+  state.outgoing.withdrawError = "";
+  state.outgoing.withdrawing = false;
+}
+
 function requiredLabel(text) {
   return `${escapeHtml(text)} <span class="required-marker" aria-hidden="true">*</span>`;
 }
@@ -117,21 +154,6 @@ function renderSignIn() {
 }
 
 function renderWorkspace() {
-  const accountOptions = demoUser.receiverAccounts
-    .map(
-      (account) => `
-        <option value="${account.id}" ${state.receiverAccountId === account.id ? "selected" : ""}>
-          ${escapeHtml(account.label)}
-        </option>
-      `
-    )
-    .join("");
-  const currency = deriveCurrency(state.receiverAccountId);
-  const recipient = selectedRecipient();
-  const results = recipient ? [] : searchFriends(state.searchQuery);
-  const hasSearch = !recipient && state.searchQuery.trim().length > 0;
-  const amountSummary = requestedAmountText(currency);
-
   return `
     <div class="app-shell">
       <aside class="sidebar" aria-label="Demo user">
@@ -149,107 +171,149 @@ function renderWorkspace() {
       <main class="workspace" aria-labelledby="page-title">
         <header class="workspace-header">
           <div>
-            <p class="eyebrow">Create request</p>
+            <p class="eyebrow">${state.view === "create" ? "Create request" : "Outgoing requests"}</p>
             <h1 id="page-title">Payment request</h1>
           </div>
-          <div class="status-pill">Pending on submit</div>
+          <button type="button" class="primary-action" id="open-create-request">Create request</button>
         </header>
 
-        <section class="request-layout">
-          <form id="request-form" class="request-form" novalidate>
-            <div class="field-group">
-              <label for="recipient-search">${requiredLabel("Recipient")}</label>
-              <input
-                id="recipient-search"
-                name="recipientSearch"
-                type="search"
-                placeholder="Search by name, email, or phone"
-                value="${escapeHtml(state.searchQuery)}"
-                autocomplete="off"
-                aria-describedby="recipient-error"
-              />
-              ${renderRecipientResults(results, hasSearch)}
-              ${renderSelectedRecipient(recipient)}
-              ${renderInlineError("recipient-error", fieldError("recipientId"))}
-            </div>
+        <div class="payment-tabs" role="tablist" aria-label="Payment request views">
+          <button type="button" role="tab" id="create-tab" aria-selected="${state.view === "create"}" class="tab-action ${state.view === "create" ? "is-active" : ""}">Create</button>
+          <button type="button" role="tab" id="outgoing-tab" aria-selected="${state.view !== "create"}" class="tab-action ${state.view !== "create" ? "is-active" : ""}">Outgoing</button>
+        </div>
 
-            <div class="two-column">
-              <div class="field-group">
-                <label for="receiver-account">${requiredLabel("Receiver account")}</label>
-                <select id="receiver-account" name="receiverAccountId" aria-describedby="receiver-account-error">
-                  <option value="">Select account</option>
-                  ${accountOptions}
-                </select>
-                ${renderInlineError("receiver-account-error", fieldError("receiverAccountId"))}
-              </div>
-              <div class="field-group">
-                <span class="field-label">Currency</span>
-                <output id="derived-currency" class="derived-value" aria-live="polite">
-                  ${currency ? `${escapeHtml(currencySymbol(currency))} ${escapeHtml(currency)}` : "Select account"}
-                </output>
-              </div>
-            </div>
-
-            <div class="field-group">
-              <label for="amount">${requiredLabel("Amount")}</label>
-              <div class="amount-control">
-                <span class="amount-symbol" aria-hidden="true">${escapeHtml(currencySymbol(currency))}</span>
-                <input
-                  id="amount"
-                  name="amount"
-                  type="text"
-                  inputmode="decimal"
-                  placeholder="0.00"
-                  value="${escapeHtml(state.amount)}"
-                  aria-describedby="amount-error"
-                />
-              </div>
-              ${renderInlineError("amount-error", fieldError("amount"))}
-            </div>
-
-            <div class="field-group">
-              <label for="note">Note</label>
-              <textarea id="note" name="note" rows="4" maxlength="${NOTE_LIMIT}" aria-describedby="note-count">${escapeHtml(state.note)}</textarea>
-              <p id="note-count" class="hint">${state.note.length}/${NOTE_LIMIT}</p>
-            </div>
-
-            ${
-              state.submitError
-                ? `<p class="banner banner-error" role="alert">${escapeHtml(state.submitError)}</p>`
-                : ""
-            }
-            <button id="submit-request" class="primary-action" type="submit" ${state.isSubmitting ? "disabled" : ""}>
-              ${state.isSubmitting ? "Creating request..." : "Create payment request"}
-            </button>
-          </form>
-
-          <aside class="summary-panel" aria-label="Request summary">
-            <h2>Summary</h2>
-            <dl>
-              <div>
-                <dt>Recipient</dt>
-                <dd>${recipient ? escapeHtml(recipient.fullName) : "Not selected"}</dd>
-              </div>
-              <div>
-                <dt>Currency</dt>
-                <dd>${currency ? `${escapeHtml(currencySymbol(currency))} ${escapeHtml(currency)}` : "Not selected"}</dd>
-              </div>
-              <div>
-                <dt>Requested amount</dt>
-                <dd id="summary-amount">${escapeHtml(amountSummary)}</dd>
-              </div>
-              <div>
-                <dt>Status</dt>
-                <dd>Pending</dd>
-              </div>
-            </dl>
-          </aside>
-        </section>
-
-        ${state.success ? renderSuccess(state.success) : ""}
+        ${state.view === "create" ? renderCreateView() : ""}
+        ${state.view === "outgoing" ? renderOutgoingView() : ""}
+        ${state.view === "detail" ? renderOutgoingDetailView() : ""}
+        ${renderWithdrawDialog()}
       </main>
     </div>
   `;
+}
+
+function renderCreateView() {
+  const accountOptions = demoUser.receiverAccounts
+    .map(
+      (account) => `
+        <option value="${account.id}" ${state.receiverAccountId === account.id ? "selected" : ""}>
+          ${escapeHtml(account.label)}
+        </option>
+      `
+    )
+    .join("");
+  const currency = deriveCurrency(state.receiverAccountId);
+  const recipient = selectedRecipient();
+  const results = recipient ? [] : searchFriendsForCreate(state.searchQuery);
+  const hasSearch = !recipient && state.searchQuery.trim().length > 0;
+  const amountSummary = requestedAmountText(currency);
+
+  return `
+    <section class="request-layout">
+      <form id="request-form" class="request-form" novalidate>
+        <div class="field-group">
+          <label for="recipient-search">${requiredLabel("Recipient")}</label>
+          <input
+            id="recipient-search"
+            name="recipientSearch"
+            type="search"
+            placeholder="Search by name, email, or phone"
+            value="${escapeHtml(state.searchQuery)}"
+            autocomplete="off"
+            aria-describedby="recipient-error"
+          />
+          ${renderRecipientResults(results, hasSearch)}
+          ${renderSelectedRecipient(recipient)}
+          ${renderInlineError("recipient-error", fieldError("recipientId"))}
+        </div>
+
+        <div class="two-column">
+          <div class="field-group">
+            <label for="receiver-account">${requiredLabel("Receiver account")}</label>
+            <select id="receiver-account" name="receiverAccountId" aria-describedby="receiver-account-error">
+              <option value="">Select account</option>
+              ${accountOptions}
+            </select>
+            ${renderInlineError("receiver-account-error", fieldError("receiverAccountId"))}
+          </div>
+          <div class="field-group">
+            <span class="field-label">Currency</span>
+            <output id="derived-currency" class="derived-value" aria-live="polite">
+              ${currency ? `${escapeHtml(currencySymbol(currency))} ${escapeHtml(currency)}` : "Select account"}
+            </output>
+          </div>
+        </div>
+
+        <div class="field-group">
+          <label for="amount">${requiredLabel("Amount")}</label>
+          <div class="amount-control">
+            <span class="amount-symbol" aria-hidden="true">${escapeHtml(currencySymbol(currency))}</span>
+            <input
+              id="amount"
+              name="amount"
+              type="text"
+              inputmode="decimal"
+              placeholder="0.00"
+              value="${escapeHtml(state.amount)}"
+              aria-describedby="amount-error"
+            />
+          </div>
+          ${renderInlineError("amount-error", fieldError("amount"))}
+        </div>
+
+        <div class="field-group">
+          <label for="note">Note</label>
+          <textarea id="note" name="note" rows="4" maxlength="${NOTE_LIMIT}" aria-describedby="note-count">${escapeHtml(state.note)}</textarea>
+          <p id="note-count" class="hint">${state.note.length}/${NOTE_LIMIT}</p>
+        </div>
+
+        ${
+          state.submitError
+            ? `<p class="banner banner-error" role="alert">${escapeHtml(state.submitError)}</p>`
+            : ""
+        }
+        <button id="submit-request" class="primary-action" type="submit" ${state.isSubmitting ? "disabled" : ""}>
+          ${state.isSubmitting ? "Creating request..." : "Create payment request"}
+        </button>
+      </form>
+
+      <aside class="summary-panel" aria-label="Request summary">
+        <h2>Summary</h2>
+        <dl>
+          <div>
+            <dt>Recipient</dt>
+            <dd>${recipient ? escapeHtml(recipient.fullName) : "Not selected"}</dd>
+          </div>
+          <div>
+            <dt>Currency</dt>
+            <dd>${currency ? `${escapeHtml(currencySymbol(currency))} ${escapeHtml(currency)}` : "Not selected"}</dd>
+          </div>
+          <div>
+            <dt>Requested amount</dt>
+            <dd id="summary-amount">${escapeHtml(amountSummary)}</dd>
+          </div>
+          <div>
+            <dt>Status</dt>
+            <dd>Pending</dd>
+          </div>
+        </dl>
+      </aside>
+    </section>
+
+    ${state.success ? renderSuccess(state.success) : ""}
+  `;
+}
+
+function searchFriendsForCreate(query) {
+  const normalized = String(query ?? "").trim().toLowerCase();
+  if (!normalized) return [];
+
+  return friends.filter((friend) => {
+    if (!friend.active || friend.id === demoUser.id) return false;
+    return [friend.fullName, friend.email, friend.phone]
+      .map((value) => String(value ?? "").toLowerCase())
+      .join(" ")
+      .includes(normalized);
+  });
 }
 
 function renderRecipientResults(results, hasSearch) {
@@ -334,6 +398,194 @@ function renderSuccess(paymentRequest) {
   `;
 }
 
+function filteredOutgoingItems() {
+  return filterOutgoingPaymentRequests(state.outgoing.items, {
+    status: state.outgoing.status,
+    recipientQuery: state.outgoing.recipientQuery
+  });
+}
+
+function renderOutgoingView() {
+  if (state.outgoing.loading) {
+    return `<section class="outgoing-panel" aria-live="polite"><p class="empty-state">Loading outgoing requests...</p></section>`;
+  }
+
+  if (state.outgoing.error) {
+    return `
+      <section class="outgoing-panel">
+        <p class="banner banner-error" role="alert">${escapeHtml(state.outgoing.error)}</p>
+        <button type="button" class="secondary-action" id="retry-outgoing">Retry</button>
+      </section>
+    `;
+  }
+
+  const rows = filteredOutgoingItems();
+  const hasFilters = Boolean(state.outgoing.status || state.outgoing.recipientQuery.trim());
+
+  return `
+    <section class="outgoing-panel" aria-labelledby="outgoing-title">
+      <div class="section-heading">
+        <div>
+          <h2 id="outgoing-title">Outgoing requests</h2>
+          <p class="muted">Requests created by ${escapeHtml(demoUser.fullName)}.</p>
+        </div>
+        ${state.outgoing.successMessage ? `<p class="banner banner-success" role="status">${escapeHtml(state.outgoing.successMessage)}</p>` : ""}
+      </div>
+
+      <div class="filter-bar">
+        <label for="outgoing-status">
+          <span>Status</span>
+          <select id="outgoing-status">
+            <option value="">All statuses</option>
+            <option value="pending" ${state.outgoing.status === "pending" ? "selected" : ""}>Pending</option>
+            <option value="withdrawn" ${state.outgoing.status === "withdrawn" ? "selected" : ""}>Withdrawn</option>
+          </select>
+        </label>
+        <label for="outgoing-recipient-query">
+          <span>Recipient</span>
+          <input id="outgoing-recipient-query" type="search" value="${escapeHtml(state.outgoing.recipientQuery)}" placeholder="Search recipient details" />
+        </label>
+        <button type="button" class="secondary-action" id="clear-outgoing-filters" ${hasFilters ? "" : "disabled"}>Clear filters</button>
+      </div>
+
+      ${renderOutgoingRows(rows, hasFilters)}
+    </section>
+  `;
+}
+
+function renderOutgoingRows(rows, hasFilters) {
+  if (state.outgoing.items.length === 0) {
+    return `
+      <div class="empty-block" role="status">
+        <h3>No outgoing requests</h3>
+        <p class="muted">Create a request to start tracking outgoing requests.</p>
+      </div>
+    `;
+  }
+
+  if (rows.length === 0 && hasFilters) {
+    return `
+      <div class="empty-block" role="status">
+        <h3>No matching outgoing requests</h3>
+        <p class="muted">Clear filters or search for another recipient.</p>
+      </div>
+    `;
+  }
+
+  return `
+    <ul class="outgoing-list" aria-label="Outgoing requests">
+      ${rows.map(renderOutgoingRow).join("")}
+    </ul>
+  `;
+}
+
+function renderOutgoingRow(request) {
+  const recipient = findRecipientDisplay(request.recipientId);
+  const canWithdraw = canWithdrawPaymentRequest(request);
+
+  return `
+    <li class="outgoing-row" role="row" aria-label="${escapeHtml(`${recipient.fullName} ${formatAmount(request.amount, request.currency)} ${request.currency} ${formatStatusLabel(request.status)} ${formatRequestDate(request.createdAt)}`)}">
+      <button type="button" class="row-main" data-open-detail="${escapeHtml(request.id)}">
+        <span class="row-amount">${escapeHtml(formatAmount(request.amount, request.currency))} ${escapeHtml(request.currency)}</span>
+        <span>
+          <strong>${escapeHtml(recipient.fullName)}</strong>
+          <small>${escapeHtml([recipient.email, recipient.phone].filter(Boolean).join(" · "))}</small>
+        </span>
+        <span class="status-label status-${escapeHtml(request.status)}">${escapeHtml(formatStatusLabel(request.status))}</span>
+        <span>${escapeHtml(formatRequestDate(request.createdAt))}</span>
+      </button>
+      <div class="row-actions">
+        ${
+          canWithdraw
+            ? `<button type="button" class="secondary-action danger-action" data-withdraw="${escapeHtml(request.id)}" data-source="list">Withdraw</button>`
+            : `<p class="ineligible-message">${escapeHtml(ERROR_MESSAGES.unavailable_action)}</p>`
+        }
+      </div>
+    </li>
+  `;
+}
+
+function renderOutgoingDetailView() {
+  if (state.outgoing.detailLoading) {
+    return `<section class="outgoing-panel" aria-live="polite"><button type="button" class="secondary-action" id="back-to-outgoing">Back</button><p class="empty-state">Loading request details...</p></section>`;
+  }
+
+  if (state.outgoing.detailError || !state.outgoing.detail) {
+    return `
+      <section class="outgoing-panel detail-panel">
+        <button type="button" class="secondary-action" id="back-to-outgoing">Back</button>
+        <div class="empty-block" role="alert">
+          <h2>Outgoing request unavailable</h2>
+          <p>${escapeHtml(unavailableRequestMessage(state.outgoing.detailError))}</p>
+        </div>
+      </section>
+    `;
+  }
+
+  const request = state.outgoing.detail;
+  const recipient = findRecipientDisplay(request.recipientId);
+  const canWithdraw = canWithdrawPaymentRequest(request);
+
+  return `
+    <section class="outgoing-panel detail-panel" aria-labelledby="detail-title">
+      <button type="button" class="secondary-action" id="back-to-outgoing">Back</button>
+      ${state.outgoing.successMessage ? `<p class="banner banner-success" role="status">${escapeHtml(state.outgoing.successMessage)}</p>` : ""}
+      <div class="detail-header">
+        <div>
+          <p class="eyebrow">Outgoing request</p>
+          <h2 id="detail-title">${escapeHtml(formatAmount(request.amount, request.currency))}</h2>
+          <p class="muted">Requested from ${escapeHtml(recipient.fullName)}</p>
+        </div>
+        <span class="status-label status-${escapeHtml(request.status)}">${escapeHtml(formatStatusLabel(request.status))}</span>
+      </div>
+      <dl class="detail-grid">
+        <div><dt>Recipient</dt><dd>${escapeHtml(recipient.fullName)}</dd></div>
+        <div><dt>Recipient email</dt><dd>${escapeHtml(recipient.email || "Unavailable")}</dd></div>
+        <div><dt>Request date</dt><dd>${escapeHtml(formatRequestDate(request.createdAt))}</dd></div>
+        <div><dt>Receiver account</dt><dd>${escapeHtml(receiverAccountLabel(request.receiverAccountId))}</dd></div>
+        <div><dt>Note</dt><dd>${escapeHtml(request.note || "No note")}</dd></div>
+        <div><dt>Shareable link</dt><dd><a href="${escapeHtml(request.shareableLink)}">${escapeHtml(request.shareableLink)}</a></dd></div>
+      </dl>
+      <div class="detail-actions">
+        ${
+          canWithdraw
+            ? `<button type="button" class="primary-action danger-primary" data-withdraw="${escapeHtml(request.id)}" data-source="detail">Withdraw</button>`
+            : `<p class="ineligible-message">${escapeHtml(ERROR_MESSAGES.unavailable_action)}</p>`
+        }
+      </div>
+    </section>
+  `;
+}
+
+function renderWithdrawDialog() {
+  const dialog = state.outgoing.withdraw;
+  if (!dialog) return "";
+  const request =
+    state.outgoing.items.find((item) => item.id === dialog.requestId) ??
+    state.outgoing.detail;
+  const recipient = findRecipientDisplay(request?.recipientId);
+
+  return `
+    <div class="modal-backdrop" role="presentation">
+      <section class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="withdraw-title">
+        <h2 id="withdraw-title">Withdraw request?</h2>
+        <p>Confirm withdrawal for ${escapeHtml(recipient.fullName)}. This changes the request status to withdrawn.</p>
+        ${
+          state.outgoing.withdrawError
+            ? `<p class="banner banner-error" role="alert">${escapeHtml(state.outgoing.withdrawError)}</p>`
+            : ""
+        }
+        <div class="dialog-actions">
+          <button type="button" class="secondary-action" id="cancel-withdraw">Cancel</button>
+          <button type="button" class="primary-action danger-primary" id="confirm-withdraw" ${state.outgoing.withdrawing ? "disabled" : ""}>
+            ${state.outgoing.withdrawing ? "Withdrawing..." : "Confirm withdrawal"}
+          </button>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
 function bindSignIn() {
   document.querySelector("#signin-form").addEventListener("submit", (event) => {
     event.preventDefault();
@@ -345,6 +597,7 @@ function bindSignIn() {
       state.signedIn = true;
       sessionStorage.setItem(SESSION_KEY, "true");
       state.signInError = "";
+      state.view = "create";
       resetRequestState();
     } else {
       state.signInError = "Use the demo email and password for this workspace.";
@@ -357,9 +610,35 @@ function bindSignIn() {
 function bindWorkspace() {
   document.querySelector(".sidebar-nav a").addEventListener("click", (event) => {
     event.preventDefault();
+    state.view = "create";
     resetRequestState();
+    resetOutgoingTransient();
     render();
   });
+
+  document.querySelector("#open-create-request").addEventListener("click", () => {
+    state.view = "create";
+    resetRequestState();
+    resetOutgoingTransient();
+    render();
+  });
+
+  document.querySelector("#create-tab").addEventListener("click", () => {
+    state.view = "create";
+    resetOutgoingTransient();
+    render();
+  });
+
+  document.querySelector("#outgoing-tab").addEventListener("click", () => {
+    openOutgoingList();
+  });
+
+  bindCreateView();
+  bindOutgoingView();
+}
+
+function bindCreateView() {
+  if (state.view !== "create") return;
 
   document.querySelector("#recipient-search").addEventListener("input", (event) => {
     state.searchQuery = event.target.value;
@@ -416,8 +695,164 @@ function bindWorkspace() {
   });
 
   document.querySelector("#request-form").addEventListener("submit", submitRequest);
-
   document.querySelector("#copy-share-link")?.addEventListener("click", copyShareableLink);
+}
+
+function bindOutgoingView() {
+  if (state.view === "outgoing") {
+    document.querySelector("#retry-outgoing")?.addEventListener("click", () => loadOutgoingRequests(true));
+    document.querySelector("#outgoing-status")?.addEventListener("change", (event) => {
+      state.outgoing.status = event.target.value;
+      render();
+    });
+    document.querySelector("#outgoing-recipient-query")?.addEventListener("input", (event) => {
+      state.outgoing.recipientQuery = event.target.value;
+      render();
+      const input = document.querySelector("#outgoing-recipient-query");
+      input.focus();
+      input.setSelectionRange(state.outgoing.recipientQuery.length, state.outgoing.recipientQuery.length);
+    });
+    document.querySelector("#clear-outgoing-filters")?.addEventListener("click", () => {
+      state.outgoing.status = "";
+      state.outgoing.recipientQuery = "";
+      render();
+    });
+    document.querySelectorAll("[data-open-detail]").forEach((button) => {
+      button.addEventListener("click", () => openOutgoingDetail(button.dataset.openDetail));
+    });
+  }
+
+  if (state.view === "detail") {
+    document.querySelector("#back-to-outgoing")?.addEventListener("click", () => openOutgoingList(false));
+  }
+
+  document.querySelectorAll("[data-withdraw]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.outgoing.withdraw = {
+        requestId: button.dataset.withdraw,
+        source: button.dataset.source
+      };
+      state.outgoing.withdrawError = "";
+      render();
+    });
+  });
+
+  document.querySelector("#cancel-withdraw")?.addEventListener("click", () => {
+    closeWithdrawDialog();
+  });
+
+  document.querySelector(".modal-backdrop")?.addEventListener("click", (event) => {
+    if (event.target === event.currentTarget) closeWithdrawDialog();
+  });
+
+  if (state.outgoing.withdraw) {
+    document.addEventListener("keydown", handleWithdrawKeydown, { once: true });
+  }
+
+  document.querySelector("#confirm-withdraw")?.addEventListener("click", confirmWithdraw);
+}
+
+function handleWithdrawKeydown(event) {
+  if (event.key === "Escape" && state.outgoing.withdraw) {
+    closeWithdrawDialog();
+  }
+}
+
+function closeWithdrawDialog() {
+  state.outgoing.withdraw = null;
+  state.outgoing.withdrawError = "";
+  render();
+}
+
+async function openOutgoingList(reload = false) {
+  state.view = "outgoing";
+  resetOutgoingTransient();
+  render();
+  if (reload || !state.outgoing.loaded) {
+    await loadOutgoingRequests(reload);
+  }
+}
+
+async function loadOutgoingRequests(force = false) {
+  if (state.outgoing.loading) return;
+  if (state.outgoing.loaded && !force) return;
+
+  state.outgoing.loading = true;
+  state.outgoing.error = "";
+  state.outgoing.successMessage = "";
+  render();
+
+  try {
+    state.outgoing.items = await listOutgoingPaymentRequests();
+    state.outgoing.loaded = true;
+  } catch (error) {
+    state.outgoing.error = error.message || ERROR_MESSAGES.outgoing_list_failed;
+    if (!state.outgoing.loaded) {
+      state.outgoing.items = paymentRequests;
+      state.outgoing.error = "";
+      state.outgoing.loaded = true;
+    }
+  } finally {
+    state.outgoing.loading = false;
+    render();
+  }
+}
+
+async function openOutgoingDetail(id) {
+  state.view = "detail";
+  state.detailId = id;
+  state.outgoing.detail = null;
+  state.outgoing.detailError = "";
+  state.outgoing.detailLoading = true;
+  state.outgoing.successMessage = "";
+  render();
+
+  try {
+    state.outgoing.detail = await getOutgoingPaymentRequest(id);
+  } catch (error) {
+    const fallback = state.outgoing.items.find((item) => item.id === id);
+    if (fallback) {
+      state.outgoing.detail = fallback;
+    } else {
+      state.outgoing.detailError = error.code || "request_not_found";
+    }
+  } finally {
+    state.outgoing.detailLoading = false;
+    render();
+  }
+}
+
+function mergeUpdatedRequest(updatedRequest) {
+  state.outgoing.items = state.outgoing.items.map((item) =>
+    item.id === updatedRequest.id ? updatedRequest : item
+  );
+  if (state.outgoing.detail?.id === updatedRequest.id) {
+    state.outgoing.detail = updatedRequest;
+  }
+}
+
+async function confirmWithdraw() {
+  const dialog = state.outgoing.withdraw;
+  if (!dialog || state.outgoing.withdrawing) return;
+
+  state.outgoing.withdrawing = true;
+  state.outgoing.withdrawError = "";
+  render();
+
+  try {
+    const updatedRequest = await withdrawPaymentRequest(dialog.requestId, { confirm: true });
+    if (updatedRequest) mergeUpdatedRequest(updatedRequest);
+    state.outgoing.withdraw = null;
+    state.outgoing.successMessage = "Request withdrawn.";
+  } catch (error) {
+    if (error.body?.paymentRequest) {
+      mergeUpdatedRequest(error.body.paymentRequest);
+    }
+    state.outgoing.withdrawError = error.message || ERROR_MESSAGES.withdraw_failed;
+  } finally {
+    state.outgoing.withdrawing = false;
+    render();
+  }
 }
 
 async function copyShareableLink() {

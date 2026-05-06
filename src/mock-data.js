@@ -56,3 +56,62 @@ export const friends = [
     active: false
   }
 ];
+
+export const paymentRequests = [
+  {
+    id: "req_outgoing_001",
+    senderId: demoUser.id,
+    recipientId: "friend_001",
+    receiverAccountId: "acct_eur_main",
+    amount: 125.5,
+    currency: "EUR",
+    note: "Dinner split",
+    status: "pending",
+    hash: "hash_outgoing_001",
+    shareableLink: "/r/hash_outgoing_001",
+    createdAt: "2026-05-06T12:00:00.000Z",
+    updatedAt: "2026-05-06T12:00:00.000Z"
+  },
+  {
+    id: "req_outgoing_002",
+    senderId: demoUser.id,
+    recipientId: "friend_002",
+    receiverAccountId: "acct_usd_travel",
+    amount: 48.75,
+    currency: "USD",
+    note: "Taxi share",
+    status: "withdrawn",
+    hash: "hash_outgoing_002",
+    shareableLink: "/r/hash_outgoing_002",
+    createdAt: "2026-05-05T09:30:00.000Z",
+    updatedAt: "2026-05-05T10:00:00.000Z"
+  },
+  {
+    id: "req_outgoing_003",
+    senderId: demoUser.id,
+    recipientId: "friend_003",
+    receiverAccountId: "acct_gbp_family",
+    amount: 210,
+    currency: "GBP",
+    note: "",
+    status: "pending",
+    hash: "hash_outgoing_003",
+    shareableLink: "/r/hash_outgoing_003",
+    createdAt: "2026-05-04T16:15:00.000Z",
+    updatedAt: "2026-05-04T16:15:00.000Z"
+  },
+  {
+    id: "req_incoming_001",
+    senderId: "friend_001",
+    recipientId: demoUser.id,
+    receiverAccountId: "acct_eur_main",
+    amount: 88,
+    currency: "EUR",
+    note: "Incoming record excluded from outgoing management",
+    status: "pending",
+    hash: "hash_incoming_001",
+    shareableLink: "/r/hash_incoming_001",
+    createdAt: "2026-05-06T13:00:00.000Z",
+    updatedAt: "2026-05-06T13:00:00.000Z"
+  }
+];
