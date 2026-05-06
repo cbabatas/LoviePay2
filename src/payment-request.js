@@ -1,6 +1,8 @@
-import { demoUser, friends, SUPPORTED_CURRENCIES } from "./mock-data.js";
+import { users, SUPPORTED_CURRENCIES } from "./mock-data.js";
 
-const ALL_USERS = [demoUser, ...friends];
+const ALL_USERS = users;
+const demoUser = users[0];
+const friends = users.slice(1);
 
 export const ERROR_MESSAGES = {
   invalid_amount: "Amount must be greater than zero and less than 1,000,000.",

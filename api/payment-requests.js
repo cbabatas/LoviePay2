@@ -7,9 +7,10 @@ import {
   computeExpiresAt,
   computeDaysRemaining
 } from "../src/payment-request.js";
-import { demoUser, friends } from "../src/mock-data.js";
+import { users } from "../src/mock-data.js";
 
-const ALL_USERS = [demoUser, ...friends];
+const ALL_USERS = users;
+const demoUser = users[0];
 const ACCOUNTS_TABLE = "accounts";
 const PAYMENT_TRANSACTIONS_TABLE = "payment_transactions";
 const LEDGER_ENTRIES_TABLE = "ledger_entries";

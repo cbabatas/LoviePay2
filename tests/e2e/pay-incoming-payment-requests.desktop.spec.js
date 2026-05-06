@@ -6,9 +6,9 @@ const demoPassword = "1234";
 export const incomingPayFixtures = [
   {
     id: "req_pay_pending_eur",
-    senderId: "friend_001",
-    recipientId: "demo_user_001",
-    receiverAccountId: "friend_001_acct_eur",
+    senderId: "user_002",
+    recipientId: "user_001",
+    receiverAccountId: "user_002_acct_eur",
     amount: 88.0,
     currency: "EUR",
     note: "Concert ticket",
@@ -22,9 +22,9 @@ export const incomingPayFixtures = [
   },
   {
     id: "req_pay_pending_usd",
-    senderId: "friend_005",
-    recipientId: "demo_user_001",
-    receiverAccountId: "friend_005_acct_usd",
+    senderId: "user_006",
+    recipientId: "user_001",
+    receiverAccountId: "user_006_acct_usd",
     amount: 42.5,
     currency: "USD",
     note: "Sauna evening",
@@ -38,9 +38,9 @@ export const incomingPayFixtures = [
   },
   {
     id: "req_pay_declined",
-    senderId: "friend_006",
-    recipientId: "demo_user_001",
-    receiverAccountId: "friend_006_acct_eur",
+    senderId: "user_007",
+    recipientId: "user_001",
+    receiverAccountId: "user_007_acct_eur",
     amount: 19.99,
     currency: "EUR",
     note: "Streaming subscription",
@@ -129,7 +129,7 @@ export async function mockPayIncomingApi(page, options = {}) {
   if (accountsByUser) {
     await page.route("**/api/source-accounts*", async (route) => {
       expect(route.request().method()).toBe("GET");
-      const userId = route.request().headers()["x-demo-user-id"] ?? "demo_user_001";
+      const userId = route.request().headers()["x-demo-user-id"] ?? "user_001";
       const list = accountsByUser[userId] ?? [];
       await route.fulfill({
         status: 200,
@@ -190,7 +190,7 @@ export async function mockPayIncomingApi(page, options = {}) {
       body: JSON.stringify({
         paymentRequest: request,
         sourceAccount: {
-          id: "acct_eur_main",
+          id: "user_001_acct_eur",
           displayName: "Everyday EUR",
           accountNumber: "FI21 1234 5600 0007 85",
           accountType: "current_account",
@@ -210,7 +210,7 @@ export async function mockPayIncomingApi(page, options = {}) {
           {
             id: `ledger_payer_debit_${request.id}`,
             transactionId: `txn_${request.id}`,
-            accountId: "acct_eur_main",
+            accountId: "user_001_acct_eur",
             entryType: "debit",
             amount: request.amount,
             currency: request.currency,

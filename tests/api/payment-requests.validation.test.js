@@ -6,7 +6,10 @@ import {
   listOutgoingPaymentRequests,
   withdrawOutgoingPaymentRequest
 } from "../../api/payment-requests.js";
-import { demoUser, friends } from "../../src/mock-data.js";
+import { users } from "../../src/mock-data.js";
+
+const demoUser = users[0];
+const friends = users.slice(1);
 import {
   canWithdrawPaymentRequest,
   filterOutgoingPaymentRequests,
@@ -299,8 +302,8 @@ async function createWithMock(payload, options = {}) {
 
 test("creates a pending payment request with derived fields and Supabase insert payload", async () => {
   const { result, calls } = await createWithMock({
-    recipientId: "friend_001",
-    receiverAccountId: "acct_eur_main",
+    recipientId: "user_002",
+    receiverAccountId: "user_001_acct_eur",
     amount: "125.50",
     note: " Dinner split "
   });
@@ -310,9 +313,9 @@ test("creates a pending payment request with derived fields and Supabase insert 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].table, "payment_requests");
   assert.deepEqual(calls[0].payload, {
-    sender_id: "demo_user_001",
-    recipient_id: "friend_001",
-    receiver_account_id: "acct_eur_main",
+    sender_id: "user_001",
+    recipient_id: "user_002",
+    receiver_account_id: "user_001_acct_eur",
     amount: 125.5,
     currency: "EUR",
     note: "Dinner split",
@@ -323,9 +326,9 @@ test("creates a pending payment request with derived fields and Supabase insert 
   });
   assert.deepEqual(result.body.paymentRequest, {
     id: "request_001",
-    senderId: "demo_user_001",
-    recipientId: "friend_001",
-    receiverAccountId: "acct_eur_main",
+    senderId: "user_001",
+    recipientId: "user_002",
+    receiverAccountId: "user_001_acct_eur",
     amount: 125.5,
     currency: "EUR",
     note: "Dinner split",
@@ -346,8 +349,8 @@ test("returns unique hashes for separate successful creations", async () => {
     now: () => new Date("2026-05-06T12:00:00.000Z")
   };
   const payload = {
-    recipientId: "friend_001",
-    receiverAccountId: "acct_eur_main",
+    recipientId: "user_002",
+    receiverAccountId: "user_001_acct_eur",
     amount: 10
   };
 
@@ -365,8 +368,8 @@ test("returns unique hashes for separate successful creations", async () => {
 test("returns request_creation_failed when Supabase insert fails", async () => {
   const { result, calls } = await createWithMock(
     {
-      recipientId: "friend_001",
-      receiverAccountId: "acct_eur_main",
+      recipientId: "user_002",
+      receiverAccountId: "user_001_acct_eur",
       amount: 25
     },
     {
@@ -388,7 +391,7 @@ test("returns request_creation_failed when Supabase insert fails", async () => {
 const invalidCases = [
   {
     name: "invalid amount",
-    payload: { recipientId: "friend_001", receiverAccountId: "acct_eur_main", amount: 0 },
+    payload: { recipientId: "user_002", receiverAccountId: "user_001_acct_eur", amount: 0 },
     code: "invalid_amount"
   },
   {
@@ -398,38 +401,38 @@ const invalidCases = [
   },
   {
     name: "missing recipient",
-    payload: { receiverAccountId: "acct_eur_main", amount: 10 },
+    payload: { receiverAccountId: "user_001_acct_eur", amount: 10 },
     code: "recipient_required"
   },
   {
     name: "nonexistent recipient",
-    payload: { recipientId: "friend_missing", receiverAccountId: "acct_eur_main", amount: 10 },
+    payload: { recipientId: "friend_missing", receiverAccountId: "user_001_acct_eur", amount: 10 },
     code: "recipient_not_found"
   },
   {
     name: "inactive recipient",
-    payload: { recipientId: "friend_004", receiverAccountId: "acct_eur_main", amount: 10 },
+    payload: { recipientId: "user_005", receiverAccountId: "user_001_acct_eur", amount: 10 },
     code: "recipient_inactive"
   },
   {
     name: "self recipient",
-    payload: { recipientId: "demo_user_001", receiverAccountId: "acct_eur_main", amount: 10 },
+    payload: { recipientId: "user_001", receiverAccountId: "user_001_acct_eur", amount: 10 },
     code: "self_recipient_not_allowed",
     options: { friendList: [demoUser, ...friends] }
   },
   {
     name: "missing receiver account",
-    payload: { recipientId: "friend_001", amount: 10 },
+    payload: { recipientId: "user_002", amount: 10 },
     code: "receiver_account_required"
   },
   {
     name: "nonexistent receiver account",
-    payload: { recipientId: "friend_001", receiverAccountId: "acct_missing", amount: 10 },
+    payload: { recipientId: "user_002", receiverAccountId: "acct_missing", amount: 10 },
     code: "receiver_account_not_found"
   },
   {
     name: "unsupported currency",
-    payload: { recipientId: "friend_001", receiverAccountId: "acct_jpy", amount: 10 },
+    payload: { recipientId: "user_002", receiverAccountId: "acct_jpy", amount: 10 },
     code: "unsupported_currency",
     options: {
       currentUser: {
@@ -468,8 +471,8 @@ for (const field of [
 ]) {
   test(`rejects forbidden client-derived field ${field} before Supabase insert`, async () => {
     const { result, calls } = await createWithMock({
-      recipientId: "friend_001",
-      receiverAccountId: "acct_eur_main",
+      recipientId: "user_002",
+      receiverAccountId: "user_001_acct_eur",
       amount: 10,
       [field]: "client-value"
     });
@@ -487,15 +490,15 @@ for (const field of [
 test("searches active friends by name, email, and phone", () => {
   assert.deepEqual(
     searchFriends("mika").map((friend) => friend.id),
-    ["friend_001"]
+    ["user_002"]
   );
   assert.deepEqual(
     searchFriends("leila.santos@example.test").map((friend) => friend.id),
-    ["friend_002"]
+    ["user_003"]
   );
   assert.deepEqual(
     searchFriends("+46 70").map((friend) => friend.id),
-    ["friend_003"]
+    ["user_004"]
   );
 });
 
@@ -507,16 +510,16 @@ test("search filters inactive friends, excludes current user, and returns empty 
 
 test("client form validation composes valid request values", () => {
   const result = validatePaymentRequestForm({
-    recipientId: "friend_001",
-    receiverAccountId: "acct_usd_travel",
+    recipientId: "user_002",
+    receiverAccountId: "user_001_acct_usd",
     amount: "45.25",
     note: " Lunch "
   });
 
   assert.equal(result.ok, true);
   assert.deepEqual(result.value, {
-    recipientId: "friend_001",
-    receiverAccountId: "acct_usd_travel",
+    recipientId: "user_002",
+    receiverAccountId: "user_001_acct_usd",
     amount: 45.25,
     note: "Lunch",
     currency: "USD"
@@ -526,9 +529,9 @@ test("client form validation composes valid request values", () => {
 const outgoingRows = [
   {
     id: "req_new_pending",
-    sender_id: "demo_user_001",
-    recipient_id: "friend_001",
-    receiver_account_id: "acct_eur_main",
+    sender_id: "user_001",
+    recipient_id: "user_002",
+    receiver_account_id: "user_001_acct_eur",
     amount: 125.5,
     currency: "EUR",
     note: "Dinner split",
@@ -540,9 +543,9 @@ const outgoingRows = [
   },
   {
     id: "req_old_withdrawn",
-    sender_id: "demo_user_001",
-    recipient_id: "friend_002",
-    receiver_account_id: "acct_usd_travel",
+    sender_id: "user_001",
+    recipient_id: "user_003",
+    receiver_account_id: "user_001_acct_usd",
     amount: 48.75,
     currency: "USD",
     note: "Taxi",
@@ -554,9 +557,9 @@ const outgoingRows = [
   },
   {
     id: "req_incoming",
-    sender_id: "friend_001",
-    recipient_id: "demo_user_001",
-    receiver_account_id: "acct_eur_main",
+    sender_id: "user_002",
+    recipient_id: "user_001",
+    receiver_account_id: "user_001_acct_eur",
     amount: 88,
     currency: "EUR",
     note: "Incoming",
@@ -580,9 +583,9 @@ test("lists outgoing requests with sender scoping, newest-first ordering, and cl
   );
   assert.deepEqual(result.body.paymentRequests[0], {
     id: "req_new_pending",
-    senderId: "demo_user_001",
-    recipientId: "friend_001",
-    receiverAccountId: "acct_eur_main",
+    senderId: "user_001",
+    recipientId: "user_002",
+    receiverAccountId: "user_001_acct_eur",
     amount: 125.5,
     currency: "EUR",
     note: "Dinner split",
@@ -592,15 +595,15 @@ test("lists outgoing requests with sender scoping, newest-first ordering, and cl
     createdAt: "2026-05-06T12:00:00.000Z",
     updatedAt: "2026-05-06T12:00:00.000Z"
   });
-  assert.deepEqual(calls[0].filters, [{ field: "sender_id", value: "demo_user_001" }]);
+  assert.deepEqual(calls[0].filters, [{ field: "sender_id", value: "user_001" }]);
 });
 
 test("filters outgoing requests by status and recipient details without incoming leakage", () => {
   const clientRequests = [
     {
       id: "req_new_pending",
-      senderId: "demo_user_001",
-      recipientId: "friend_001",
+      senderId: "user_001",
+      recipientId: "user_002",
       amount: 125.5,
       currency: "EUR",
       status: "pending",
@@ -608,8 +611,8 @@ test("filters outgoing requests by status and recipient details without incoming
     },
     {
       id: "req_old_withdrawn",
-      senderId: "demo_user_001",
-      recipientId: "friend_002",
+      senderId: "user_001",
+      recipientId: "user_003",
       amount: 48.75,
       currency: "USD",
       status: "withdrawn",
@@ -617,8 +620,8 @@ test("filters outgoing requests by status and recipient details without incoming
     },
     {
       id: "req_incoming",
-      senderId: "friend_001",
-      recipientId: "demo_user_001",
+      senderId: "user_002",
+      recipientId: "user_001",
       amount: 88,
       currency: "EUR",
       status: "pending",
@@ -650,7 +653,7 @@ test("gets outgoing detail and hides incoming or missing records as request_not_
   assert.equal(result.body.paymentRequest.id, "req_new_pending");
   assert.deepEqual(success.calls[0].filters, [
     { field: "id", value: "req_new_pending" },
-    { field: "sender_id", value: "demo_user_001" }
+    { field: "sender_id", value: "user_001" }
   ]);
 
   const incoming = createReadUpdateSupabaseMock(outgoingRows);
@@ -691,7 +694,7 @@ test("withdraw requires confirmation and transitions pending outgoing requests t
   });
   assert.deepEqual(updateCall.filters, [
     { field: "id", value: "req_new_pending" },
-    { field: "sender_id", value: "demo_user_001" },
+    { field: "sender_id", value: "user_001" },
     { field: "status", value: "pending" }
   ]);
 });
@@ -744,9 +747,9 @@ const incomingNow = () => new Date("2026-05-06T13:00:00.000Z");
 const incomingRows = [
   {
     id: "req_in_recent",
-    sender_id: "friend_001",
-    recipient_id: "demo_user_001",
-    receiver_account_id: "acct_eur_main",
+    sender_id: "user_002",
+    recipient_id: "user_001",
+    receiver_account_id: "user_001_acct_eur",
     amount: 88,
     currency: "EUR",
     note: "Dinner",
@@ -758,9 +761,9 @@ const incomingRows = [
   },
   {
     id: "req_in_old_declined",
-    sender_id: "friend_002",
-    recipient_id: "demo_user_001",
-    receiver_account_id: "acct_usd_travel",
+    sender_id: "user_003",
+    recipient_id: "user_001",
+    receiver_account_id: "user_001_acct_usd",
     amount: 22.5,
     currency: "USD",
     note: "Movie",
@@ -772,9 +775,9 @@ const incomingRows = [
   },
   {
     id: "req_outgoing",
-    sender_id: "demo_user_001",
-    recipient_id: "friend_003",
-    receiver_account_id: "acct_eur_main",
+    sender_id: "user_001",
+    recipient_id: "user_004",
+    receiver_account_id: "user_001_acct_eur",
     amount: 60,
     currency: "EUR",
     note: "Bus",
@@ -812,9 +815,9 @@ test("listIncomingPaymentRequests promotes pending rows past expiry to expired a
   const rows = [
     {
       id: "req_in_expiring",
-      sender_id: "friend_001",
-      recipient_id: "demo_user_001",
-      receiver_account_id: "acct_eur_main",
+      sender_id: "user_002",
+      recipient_id: "user_001",
+      receiver_account_id: "user_001_acct_eur",
       amount: 30,
       currency: "EUR",
       note: "Coffee",
@@ -857,8 +860,8 @@ test("filterIncomingPaymentRequests filters by status, senderQuery, and intersec
   const clientRequests = [
     {
       id: "r1",
-      senderId: "friend_001",
-      recipientId: "demo_user_001",
+      senderId: "user_002",
+      recipientId: "user_001",
       amount: 88,
       currency: "EUR",
       note: "Dinner",
@@ -867,8 +870,8 @@ test("filterIncomingPaymentRequests filters by status, senderQuery, and intersec
     },
     {
       id: "r2",
-      senderId: "friend_002",
-      recipientId: "demo_user_001",
+      senderId: "user_003",
+      recipientId: "user_001",
       amount: 22.5,
       currency: "USD",
       note: "Movie",
@@ -877,8 +880,8 @@ test("filterIncomingPaymentRequests filters by status, senderQuery, and intersec
     },
     {
       id: "r3",
-      senderId: "friend_003",
-      recipientId: "demo_user_001",
+      senderId: "user_004",
+      recipientId: "user_001",
       amount: 60,
       currency: "EUR",
       note: "Bus ride",
@@ -887,8 +890,8 @@ test("filterIncomingPaymentRequests filters by status, senderQuery, and intersec
     },
     {
       id: "r4",
-      senderId: "friend_001",
-      recipientId: "demo_user_001",
+      senderId: "user_002",
+      recipientId: "user_001",
       amount: 12,
       currency: "EUR",
       note: "Snack",
@@ -1002,9 +1005,9 @@ test("getIncomingPaymentRequest performs read-time expiry promotion at boundary"
   const rows = [
     {
       id: "req_in_boundary",
-      sender_id: "friend_001",
-      recipient_id: "demo_user_001",
-      receiver_account_id: "acct_eur_main",
+      sender_id: "user_002",
+      recipient_id: "user_001",
+      receiver_account_id: "user_001_acct_eur",
       amount: 15,
       currency: "EUR",
       note: "Tea",
@@ -1099,9 +1102,9 @@ test("declineIncomingPaymentRequest returns 409 with promoted paymentRequest whe
   const rows = [
     {
       id: "req_in_just_expired",
-      sender_id: "friend_001",
-      recipient_id: "demo_user_001",
-      receiver_account_id: "acct_eur_main",
+      sender_id: "user_002",
+      recipient_id: "user_001",
+      receiver_account_id: "user_001_acct_eur",
       amount: 15,
       currency: "EUR",
       note: "Tea",
@@ -1169,7 +1172,7 @@ test("declineIncomingPaymentRequest success transitions pending row to declined 
   });
   assert.deepEqual(updateCall.filters, [
     { field: "id", value: "req_in_recent" },
-    { field: "recipient_id", value: "demo_user_001" },
+    { field: "recipient_id", value: "user_001" },
     { field: "status", value: "pending" }
   ]);
 });
@@ -1191,9 +1194,9 @@ function buildPayTables(overrides = {}) {
   const requestRows = overrides.requests ?? [
     {
       id: "req_pay_pending",
-      sender_id: "friend_001",
-      recipient_id: "demo_user_001",
-      receiver_account_id: "friend_001_acct_eur",
+      sender_id: "user_002",
+      recipient_id: "user_001",
+      receiver_account_id: "user_002_acct_eur",
       amount: 88,
       currency: "EUR",
       note: "Concert ticket",
@@ -1206,8 +1209,8 @@ function buildPayTables(overrides = {}) {
   ];
   const accountRows = overrides.accounts ?? [
     {
-      id: "acct_eur_main",
-      owner_id: "demo_user_001",
+      id: "user_001_acct_eur",
+      owner_id: "user_001",
       display_name: "Everyday EUR",
       account_number: "FI21 1234 5600 0007 85",
       account_type: "current_account",
@@ -1217,8 +1220,8 @@ function buildPayTables(overrides = {}) {
       updated_at: "2026-05-01T00:00:00.000Z"
     },
     {
-      id: "acct_usd_travel",
-      owner_id: "demo_user_001",
+      id: "user_001_acct_usd",
+      owner_id: "user_001",
       display_name: "Travel USD",
       account_number: "US42 9988 7766 5544 33",
       account_type: "current_account",
@@ -1228,8 +1231,8 @@ function buildPayTables(overrides = {}) {
       updated_at: "2026-05-01T00:00:00.000Z"
     },
     {
-      id: "friend_001_acct_eur",
-      owner_id: "friend_001",
+      id: "user_002_acct_eur",
+      owner_id: "user_002",
       display_name: "Everyday EUR",
       account_number: "FI19 1010 0001 0001 11",
       account_type: "current_account",
@@ -1262,7 +1265,7 @@ test("payIncomingPaymentRequest pays a pending request, marks it paid, deducts b
 
   const result = await payIncomingPaymentRequest(
     "req_pay_pending",
-    { confirm: true, sourceAccountId: "acct_eur_main" },
+    { confirm: true, sourceAccountId: "user_001_acct_eur" },
     { supabase, now: payNow, generateId: payIdGenerator() }
   );
 
@@ -1271,12 +1274,12 @@ test("payIncomingPaymentRequest pays a pending request, marks it paid, deducts b
   assert.equal(result.body.paymentRequest.status, "paid");
   assert.equal(result.body.paymentRequest.updatedAt, "2026-05-06T13:30:00.000Z");
   assert.equal(result.body.sourceAccount.balance, 324);
-  assert.equal(tables.accounts.find((a) => a.id === "acct_eur_main").balance, 324);
+  assert.equal(tables.accounts.find((a) => a.id === "user_001_acct_eur").balance, 324);
   assert.equal(tables.payment_transactions.length, 1);
   assert.equal(tables.payment_transactions[0].status, "succeeded");
   assert.equal(tables.payment_transactions[0].type, "payment");
   assert.equal(tables.payment_transactions[0].amount, 88);
-  assert.equal(tables.payment_transactions[0].source_account_id, "acct_eur_main");
+  assert.equal(tables.payment_transactions[0].source_account_id, "user_001_acct_eur");
 
   assert.equal(tables.ledger_entries.length, 4);
   const debits = tables.ledger_entries.filter((e) => e.entry_type === "debit");
@@ -1289,7 +1292,7 @@ test("payIncomingPaymentRequest pays a pending request, marks it paid, deducts b
   assert.equal(debitTotal, 88 * 2);
 
   const payerDebit = tables.ledger_entries.find(
-    (e) => e.entry_type === "debit" && e.account_id === "acct_eur_main"
+    (e) => e.entry_type === "debit" && e.account_id === "user_001_acct_eur"
   );
   const offsetCredit = tables.ledger_entries.find(
     (e) => e.entry_type === "credit" && e.account_id === "internal_payment_clearing"
@@ -1298,7 +1301,7 @@ test("payIncomingPaymentRequest pays a pending request, marks it paid, deducts b
     (e) => e.entry_type === "debit" && e.account_id === "internal_payment_clearing"
   );
   const receiverCredit = tables.ledger_entries.find(
-    (e) => e.entry_type === "credit" && e.account_id === "friend_001_acct_eur"
+    (e) => e.entry_type === "credit" && e.account_id === "user_002_acct_eur"
   );
 
   assert.ok(payerDebit && offsetCredit && offsetDebit && receiverCredit);
@@ -1308,7 +1311,7 @@ test("payIncomingPaymentRequest pays a pending request, marks it paid, deducts b
   assert.equal(receiverCredit.account_code, "10002");
 
   assert.equal(
-    tables.accounts.find((a) => a.id === "friend_001_acct_eur").balance,
+    tables.accounts.find((a) => a.id === "user_002_acct_eur").balance,
     1088
   );
 });
@@ -1317,7 +1320,7 @@ test("payIncomingPaymentRequest requires confirm=true", async () => {
   const { supabase } = createMultiTableSupabaseMock(buildPayTables());
   const result = await payIncomingPaymentRequest(
     "req_pay_pending",
-    { sourceAccountId: "acct_eur_main" },
+    { sourceAccountId: "user_001_acct_eur" },
     { supabase, now: payNow }
   );
   assert.equal(result.ok, false);
@@ -1330,9 +1333,9 @@ test("payIncomingPaymentRequest scopes to current user (recipient_id)", async ()
     requests: [
       {
         id: "req_pay_outgoing",
-        sender_id: "demo_user_001",
-        recipient_id: "friend_001",
-        receiver_account_id: "friend_001_acct_eur",
+        sender_id: "user_001",
+        recipient_id: "user_002",
+        receiver_account_id: "user_002_acct_eur",
         amount: 50,
         currency: "EUR",
         note: "",
@@ -1347,7 +1350,7 @@ test("payIncomingPaymentRequest scopes to current user (recipient_id)", async ()
   const { supabase } = createMultiTableSupabaseMock(tablesData);
   const result = await payIncomingPaymentRequest(
     "req_pay_outgoing",
-    { confirm: true, sourceAccountId: "acct_eur_main" },
+    { confirm: true, sourceAccountId: "user_001_acct_eur" },
     { supabase, now: payNow }
   );
   assert.equal(result.statusCode, 404);
@@ -1360,9 +1363,9 @@ test("payIncomingPaymentRequest blocks non-pending statuses without changing dat
       requests: [
         {
           id: `req_pay_${status}`,
-          sender_id: "friend_001",
-          recipient_id: "demo_user_001",
-          receiver_account_id: "friend_001_acct_eur",
+          sender_id: "user_002",
+          recipient_id: "user_001",
+          receiver_account_id: "user_002_acct_eur",
           amount: 50,
           currency: "EUR",
           note: "",
@@ -1375,16 +1378,16 @@ test("payIncomingPaymentRequest blocks non-pending statuses without changing dat
       ]
     });
     const { supabase, tables } = createMultiTableSupabaseMock(tablesData);
-    const balanceBefore = tables.accounts.find((a) => a.id === "acct_eur_main").balance;
+    const balanceBefore = tables.accounts.find((a) => a.id === "user_001_acct_eur").balance;
     const result = await payIncomingPaymentRequest(
       `req_pay_${status}`,
-      { confirm: true, sourceAccountId: "acct_eur_main" },
+      { confirm: true, sourceAccountId: "user_001_acct_eur" },
       { supabase, now: payNow }
     );
     assert.equal(result.ok, false);
     const expectedCode = status === "paid" ? "payment_already_completed" : "payment_not_allowed";
     assert.equal(result.body.error.code, expectedCode);
-    assert.equal(tables.accounts.find((a) => a.id === "acct_eur_main").balance, balanceBefore);
+    assert.equal(tables.accounts.find((a) => a.id === "user_001_acct_eur").balance, balanceBefore);
     assert.equal(tables.payment_transactions.length, 0);
     assert.equal(tables.ledger_entries.length, 0);
   }
@@ -1395,9 +1398,9 @@ test("payIncomingPaymentRequest promotes stale pending past expiry to expired an
     requests: [
       {
         id: "req_pay_stale",
-        sender_id: "friend_001",
-        recipient_id: "demo_user_001",
-        receiver_account_id: "friend_001_acct_eur",
+        sender_id: "user_002",
+        recipient_id: "user_001",
+        receiver_account_id: "user_002_acct_eur",
         amount: 50,
         currency: "EUR",
         note: "",
@@ -1412,7 +1415,7 @@ test("payIncomingPaymentRequest promotes stale pending past expiry to expired an
   const { supabase, tables } = createMultiTableSupabaseMock(tablesData);
   const result = await payIncomingPaymentRequest(
     "req_pay_stale",
-    { confirm: true, sourceAccountId: "acct_eur_main" },
+    { confirm: true, sourceAccountId: "user_001_acct_eur" },
     { supabase, now: payNow }
   );
   assert.equal(result.statusCode, 409);
@@ -1436,7 +1439,7 @@ test("payIncomingPaymentRequest rejects accounts not owned by current user", asy
   const tablesData = buildPayTables();
   tablesData.accounts.push({
     id: "acct_friend_eur",
-    owner_id: "friend_001",
+    owner_id: "user_002",
     display_name: "Friend EUR",
     account_number: "FI19 1010 0001 0001 11",
     account_type: "current_account",
@@ -1460,12 +1463,12 @@ test("payIncomingPaymentRequest rejects accounts with mismatched currency", asyn
   const { supabase, tables } = createMultiTableSupabaseMock(buildPayTables());
   const result = await payIncomingPaymentRequest(
     "req_pay_pending",
-    { confirm: true, sourceAccountId: "acct_usd_travel" },
+    { confirm: true, sourceAccountId: "user_001_acct_usd" },
     { supabase, now: payNow }
   );
   assert.equal(result.statusCode, 409);
   assert.equal(result.body.error.code, "source_account_currency_mismatch");
-  assert.equal(tables.accounts.find((a) => a.id === "acct_usd_travel").balance, 280);
+  assert.equal(tables.accounts.find((a) => a.id === "user_001_acct_usd").balance, 280);
   assert.equal(tables.payment_transactions.length, 0);
 });
 
@@ -1475,7 +1478,7 @@ test("payIncomingPaymentRequest rejects insufficient balance without mutating da
   const { supabase, tables } = createMultiTableSupabaseMock(tablesData);
   const result = await payIncomingPaymentRequest(
     "req_pay_pending",
-    { confirm: true, sourceAccountId: "acct_eur_main" },
+    { confirm: true, sourceAccountId: "user_001_acct_eur" },
     { supabase, now: payNow }
   );
   assert.equal(result.statusCode, 409);
@@ -1492,7 +1495,7 @@ test("payIncomingPaymentRequest allows exact-balance payment ending at zero", as
   const { supabase, tables } = createMultiTableSupabaseMock(tablesData);
   const result = await payIncomingPaymentRequest(
     "req_pay_pending",
-    { confirm: true, sourceAccountId: "acct_eur_main" },
+    { confirm: true, sourceAccountId: "user_001_acct_eur" },
     { supabase, now: payNow, generateId: payIdGenerator() }
   );
   assert.equal(result.ok, true);
@@ -1509,13 +1512,13 @@ test("payIncomingPaymentRequest is idempotent: duplicate succeeded txn blocks fu
     amount: 88,
     currency: "EUR",
     status: "succeeded",
-    source_account_id: "acct_eur_main",
+    source_account_id: "user_001_acct_eur",
     created_at: "2026-05-06T13:25:00.000Z"
   });
   const { supabase, tables } = createMultiTableSupabaseMock(tablesData);
   const result = await payIncomingPaymentRequest(
     "req_pay_pending",
-    { confirm: true, sourceAccountId: "acct_eur_main" },
+    { confirm: true, sourceAccountId: "user_001_acct_eur" },
     { supabase, now: payNow }
   );
   assert.equal(result.statusCode, 409);
@@ -1530,7 +1533,7 @@ test("payIncomingPaymentRequest fails atomically when ledger persistence fails",
   });
   const result = await payIncomingPaymentRequest(
     "req_pay_pending",
-    { confirm: true, sourceAccountId: "acct_eur_main" },
+    { confirm: true, sourceAccountId: "user_001_acct_eur" },
     { supabase, now: payNow, generateId: payIdGenerator() }
   );
   assert.equal(result.ok, false);
@@ -1538,8 +1541,8 @@ test("payIncomingPaymentRequest fails atomically when ledger persistence fails",
   assert.equal(result.body.error.code, "payment_processing_failed");
   // Full rollback: request is back to pending, balances untouched, no transaction persisted.
   assert.equal(tables.payment_requests[0].status, "pending");
-  assert.equal(tables.accounts.find((a) => a.id === "acct_eur_main").balance, 412);
-  assert.equal(tables.accounts.find((a) => a.id === "friend_001_acct_eur").balance, 1000);
+  assert.equal(tables.accounts.find((a) => a.id === "user_001_acct_eur").balance, 412);
+  assert.equal(tables.accounts.find((a) => a.id === "user_002_acct_eur").balance, 1000);
   assert.equal(tables.payment_transactions.length, 0);
   assert.equal(tables.ledger_entries.length, 0);
 });
@@ -1547,19 +1550,19 @@ test("payIncomingPaymentRequest fails atomically when ledger persistence fails",
 test("findEligibleSourceAccounts filters by request currency", () => {
   const eurReq = { currency: "EUR" };
   const accounts = findEligibleSourceAccounts(eurReq, demoUser.receiverAccounts);
-  assert.deepEqual(accounts.map((a) => a.id), ["acct_eur_main"]);
+  assert.deepEqual(accounts.map((a) => a.id), ["user_001_acct_eur"]);
 
   const usdReq = { currency: "USD" };
   assert.deepEqual(
     findEligibleSourceAccounts(usdReq, demoUser.receiverAccounts).map((a) => a.id),
-    ["acct_usd_travel"]
+    ["user_001_acct_usd"]
   );
 });
 
 test("defaultSelectedSourceAccountId selects the only eligible account, otherwise empty", () => {
   assert.equal(
     defaultSelectedSourceAccountId({ currency: "EUR" }, demoUser.receiverAccounts),
-    "acct_eur_main"
+    "user_001_acct_eur"
   );
   const multipleEur = [
     ...demoUser.receiverAccounts,
@@ -1590,14 +1593,14 @@ test("describeSourceAccountState reports none/single/multiple states", () => {
 
 test("canPayIncoming permits only fresh pending incoming requests for current user", () => {
   const fresh = {
-    senderId: "friend_001",
+    senderId: "user_002",
     recipientId: demoUser.id,
     status: "pending",
     createdAt: "2026-05-06T13:00:00.000Z"
   };
   assert.equal(canPayIncoming(fresh, demoUser, payNow()), true);
   assert.equal(canPayIncoming({ ...fresh, status: "declined" }, demoUser, payNow()), false);
-  assert.equal(canPayIncoming({ ...fresh, recipientId: "friend_001" }, demoUser, payNow()), false);
+  assert.equal(canPayIncoming({ ...fresh, recipientId: "user_002" }, demoUser, payNow()), false);
   assert.equal(
     canPayIncoming({ ...fresh, createdAt: "2026-04-29T13:00:00.000Z" }, demoUser, payNow()),
     false
@@ -1608,11 +1611,11 @@ test("canConfirmPayment requires pending request, eligible account, sufficient b
   const request = { status: "pending", currency: "EUR", amount: 88 };
   const accounts = demoUser.receiverAccounts;
   assert.equal(
-    canConfirmPayment({ request, selectedAccountId: "acct_eur_main", accounts }),
+    canConfirmPayment({ request, selectedAccountId: "user_001_acct_eur", accounts }),
     true
   );
   assert.equal(
-    canConfirmPayment({ request, selectedAccountId: "acct_usd_travel", accounts }),
+    canConfirmPayment({ request, selectedAccountId: "user_001_acct_usd", accounts }),
     false
   );
   assert.equal(
@@ -1620,12 +1623,12 @@ test("canConfirmPayment requires pending request, eligible account, sufficient b
     false
   );
   const lowBalAccounts = accounts.map((a) =>
-    a.id === "acct_eur_main" ? { ...a, balance: 50 } : a
+    a.id === "user_001_acct_eur" ? { ...a, balance: 50 } : a
   );
   assert.equal(
     canConfirmPayment({
       request,
-      selectedAccountId: "acct_eur_main",
+      selectedAccountId: "user_001_acct_eur",
       accounts: lowBalAccounts
     }),
     false

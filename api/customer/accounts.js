@@ -1,9 +1,10 @@
 import { createSupabaseServerClient, includeDebugDetails } from "../supabase-client.js";
 import { ERROR_MESSAGES } from "../../src/payment-request.js";
-import { demoUser, friends } from "../../src/mock-data.js";
+import { users } from "../../src/mock-data.js";
 
 const ACCOUNTS_TABLE = "accounts";
-const ALL_USERS = [demoUser, ...friends];
+const ALL_USERS = users;
+const demoUser = users[0];
 
 export function resolveCurrentUser(req) {
   const userId = req.headers["x-demo-user-id"];

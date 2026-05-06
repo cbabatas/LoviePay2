@@ -25,8 +25,8 @@ test.describe("create payment request desktop flow", () => {
       expect(route.request().method()).toBe("POST");
       const payload = route.request().postDataJSON();
       expect(payload).toMatchObject({
-        recipientId: "friend_001",
-        receiverAccountId: "acct_eur_main",
+        recipientId: "user_002",
+        receiverAccountId: "user_001_acct_eur",
         amount: 125.5,
         note: "Dinner split"
       });
@@ -39,9 +39,9 @@ test.describe("create payment request desktop flow", () => {
         body: JSON.stringify({
           paymentRequest: {
             id: "req_test_001",
-            senderId: "demo_user_001",
-            recipientId: "friend_001",
-            receiverAccountId: "acct_eur_main",
+            senderId: "user_001",
+            recipientId: "user_002",
+            receiverAccountId: "user_001_acct_eur",
             amount: 125.5,
             currency: "EUR",
             note: "Dinner split",
@@ -59,7 +59,7 @@ test.describe("create payment request desktop flow", () => {
     await expect(page.getByText("LP-204813")).toBeVisible();
 
     await selectRecipient(page, "Mika", "Mika Korhonen");
-    await page.getByLabel("Receiver account").selectOption("acct_eur_main");
+    await page.getByLabel("Receiver account").selectOption("user_001_acct_eur");
     await expect(page.locator("#derived-currency")).toHaveText("€ EUR");
     await page.getByLabel("Amount").fill("125.50");
     await page.getByLabel("Amount").blur();
@@ -127,7 +127,7 @@ test.describe("create payment request desktop flow", () => {
     await expect(page.locator("#success-state")).toHaveCount(0);
 
     await selectRecipient(page, "Mika", "Mika Korhonen");
-    await page.getByLabel("Receiver account").selectOption("acct_usd_travel");
+    await page.getByLabel("Receiver account").selectOption("user_001_acct_usd");
     await expect(page.locator("#derived-currency")).toHaveText("$ USD");
 
     for (const amount of ["0", "-5", "abc", "1000000"]) {
@@ -158,7 +158,7 @@ test.describe("create payment request desktop flow", () => {
 
     await signIn(page);
     await selectRecipient(page, "Mika", "Mika Korhonen");
-    await page.getByLabel("Receiver account").selectOption("acct_gbp_family");
+    await page.getByLabel("Receiver account").selectOption("user_001_acct_gbp");
     await page.getByLabel("Amount").fill("44");
     await page.getByRole("button", { name: "Create payment request" }).click();
 
@@ -173,7 +173,7 @@ test.describe("create payment request desktop flow", () => {
   }) => {
     await signIn(page);
     await selectRecipient(page, "Mika", "Mika Korhonen");
-    await page.getByLabel("Receiver account").selectOption("acct_eur_main");
+    await page.getByLabel("Receiver account").selectOption("user_001_acct_eur");
     await page.getByLabel("Amount").fill("1000.5");
     await page.getByLabel("Amount").blur();
     await expect(page.getByLabel("Amount")).toHaveValue("1,000.50");
