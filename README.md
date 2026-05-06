@@ -1,12 +1,22 @@
 # LoviePay
 
-A lightweight peer‑to‑peer payment request demo built with Vite, vanilla JS, and Supabase. Users can create, send, view, decline, and pay payment requests, with a four‑entry ledger applied atomically on payment.
+A lightweight peer‑to‑peer payment request built with Vite, vanilla JS, and Supabase. Users can create, send, view, decline, and pay payment requests.
 
 ## Live Demo
 
 https://lovie-pay.vercel.app/log-in
 
 The deployed app is fully testable without a local setup. Sign in as the demo user from the log‑in page and explore the Payment Request screen (Outgoing / Incoming tabs).
+
+## Demo User 
+
+1. 
+email: ayla.demo@example.test
+password: 1234
+
+2. 
+email: mika.korhonen@example.test
+password: 1234
 
 ## Project Overview
 
@@ -30,7 +40,7 @@ Each spec folder contains the generated `spec.md`, `plan.md`, `research.md`, `da
 ### AI Tools Used
 
 - [GitHub Spec‑Kit](https://github.com/github/spec-kit) for spec/plan/tasks generation (artifacts checked into `specs/`)
-- [Claude Code](https://claude.com/claude-code) for implementation, refactoring, and review
+- [Claude Code](https://claude.com/claude-code) and [Codex] (https://openai.com/codex/) for implementation, refactoring, and review.
 
 ## Local Setup
 

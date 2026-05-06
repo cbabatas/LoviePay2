@@ -1,4 +1,4 @@
-import { demoUser, friends, paymentRequests } from "./mock-data.js";
+import { demoUser, friends } from "./mock-data.js";
 
 const ALL_USERS = [demoUser, ...friends];
 import {
@@ -1359,11 +1359,6 @@ async function loadOutgoingRequests(force = false) {
     state.outgoing.loaded = true;
   } catch (error) {
     state.outgoing.error = error.message || ERROR_MESSAGES.outgoing_list_failed;
-    if (!state.outgoing.loaded) {
-      state.outgoing.items = paymentRequests;
-      state.outgoing.error = "";
-      state.outgoing.loaded = true;
-    }
   } finally {
     state.outgoing.loading = false;
     render();
@@ -1763,14 +1758,6 @@ async function loadIncomingRequests(force = false) {
     state.incoming.loaded = true;
   } catch (error) {
     state.incoming.error = error.message || ERROR_MESSAGES.incoming_list_failed;
-    if (!state.incoming.loaded) {
-      const fallback = paymentRequests
-        .filter((request) => request.recipientId === state.currentUser.id)
-        .map((request) => shapeIncomingForDisplay(request));
-      state.incoming.items = fallback;
-      state.incoming.error = "";
-      state.incoming.loaded = true;
-    }
   } finally {
     state.incoming.loading = false;
     render();
