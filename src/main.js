@@ -226,7 +226,7 @@ function fieldError(name) {
   return code ? ERROR_MESSAGES[code] ?? ERROR_MESSAGES.request_creation_failed : "";
 }
 
-function requestedAmountText(currency = deriveCurrency(state.receiverAccountId)) {
+function requestedAmountText(currency = deriveCurrency(state.receiverAccountId, state.currentUser)) {
   const validation = validatePaymentRequestForm({
     recipientId: state.selectedRecipientId || "user_002",
     receiverAccountId: state.receiverAccountId || "user_001_acct_eur",
@@ -405,7 +405,7 @@ function renderCreateView() {
       `
     )
     .join("");
-  const currency = deriveCurrency(state.receiverAccountId);
+  const currency = deriveCurrency(state.receiverAccountId, state.currentUser);
   const recipient = selectedRecipient();
   const results = recipient ? [] : searchFriendsForCreate(state.searchQuery);
   const hasSearch = !recipient && state.searchQuery.trim().length > 0;
@@ -748,7 +748,7 @@ function renderOutgoingDetailView() {
         <div><dt>Recipient</dt><dd>${escapeHtml(recipient.fullName)}</dd></div>
         <div><dt>Recipient email</dt><dd>${escapeHtml(recipient.email || "Unavailable")}</dd></div>
         <div><dt>Request date</dt><dd>${escapeHtml(formatRequestDate(request.createdAt))}</dd></div>
-        <div><dt>Receiver account</dt><dd>${escapeHtml(receiverAccountLabel(request.receiverAccountId))}</dd></div>
+        <div><dt>Receiver account</dt><dd>${escapeHtml(receiverAccountLabel(request.receiverAccountId, state.currentUser))}</dd></div>
         <div><dt>Note</dt><dd>${escapeHtml(request.note || "No note")}</dd></div>
         <div><dt>Shareable link</dt>${renderShareableLinkCell(request.shareableLink)}</div>
       </dl>
@@ -937,7 +937,7 @@ function renderIncomingDetailView() {
         <div><dt>Request date</dt><dd>${escapeHtml(formatRequestDate(request.createdAt))}</dd></div>
         <div><dt>Expires</dt><dd>${escapeHtml(formatRequestDate(request.expiresAt))}</dd></div>
         <div><dt>Days remaining</dt><dd>${escapeHtml(daysLabel)}</dd></div>
-        <div><dt>Receiver account</dt><dd>${escapeHtml(receiverAccountLabel(request.receiverAccountId))}</dd></div>
+        <div><dt>Receiver account</dt><dd>${escapeHtml(receiverAccountLabel(request.receiverAccountId, state.currentUser))}</dd></div>
         <div><dt>Note</dt><dd>${escapeHtml(request.note || "No note")}</dd></div>
         <div><dt>Shareable link</dt>${renderShareableLinkCell(request.shareableLink)}</div>
       </dl>
