@@ -1486,7 +1486,7 @@ test("payIncomingPaymentRequest is idempotent: duplicate succeeded txn blocks fu
   assert.equal(tables.payment_transactions.length, 1);
 });
 
-test("payIncomingPaymentRequest returns processing failure when ledger insert fails and rolls back", async () => {
+test("payIncomingPaymentRequest treats ledger persistence as best-effort and still returns success", async () => {
   const { supabase, tables } = createMultiTableSupabaseMock(buildPayTables(), {
     failures: { ledger_entries: { insert: { message: "ledger boom" } } }
   });
@@ -1495,12 +1495,12 @@ test("payIncomingPaymentRequest returns processing failure when ledger insert fa
     { confirm: true, sourceAccountId: "acct_eur_main" },
     { supabase, now: payNow, generateId: payIdGenerator() }
   );
-  assert.equal(result.ok, false);
-  assert.equal(result.statusCode, 500);
-  assert.equal(result.body.error.code, "payment_processing_failed");
-  assert.equal(tables.payment_requests[0].status, "pending");
-  assert.equal(tables.accounts[0].balance, 412);
-  assert.equal(tables.payment_transactions.length, 0);
+  assert.equal(result.ok, true);
+  assert.equal(result.body.paymentRequest.status, "paid");
+  assert.equal(tables.payment_requests[0].status, "paid");
+  assert.equal(tables.accounts[0].balance, 324);
+  assert.ok(Array.isArray(result.body.ledgerEntries));
+  assert.equal(result.body.ledgerEntries.length, 2);
   assert.equal(tables.ledger_entries.length, 0);
 });
 

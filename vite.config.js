@@ -35,14 +35,15 @@ function applyServerEnv(mode) {
   }
 }
 
-function sendJsonError(res) {
+function sendJsonError(res, error) {
   res.statusCode = 500;
   res.setHeader("Content-Type", "application/json");
   res.end(
     JSON.stringify({
       error: {
         code: "request_creation_failed",
-        message: "The request could not be created. Try again."
+        message: error?.message || "The request could not be completed. Try again.",
+        stack: error?.stack
       }
     })
   );
@@ -77,7 +78,7 @@ export default defineConfig(({ mode }) => {
               res.end(result.body);
             } catch (error) {
               server.config.logger.error(`[API ERROR] ${error?.message ?? error}\n${error?.stack ?? ""}`);
-              sendJsonError(res);
+              sendJsonError(res, error);
             }
           });
         }

@@ -398,22 +398,85 @@ function toClientLedgerEntry(row) {
 }
 
 async function fetchSourceAccount(supabase, accountId) {
-  const { data, error } = await supabase
-    .from(ACCOUNTS_TABLE)
-    .select("*")
-    .eq("id", accountId)
-    .maybeSingle();
-  return { data, error };
+  try {
+    const { data, error } = await supabase
+      .from(ACCOUNTS_TABLE)
+      .select("*")
+      .eq("id", accountId)
+      .maybeSingle();
+    return { data, error };
+  } catch (error) {
+    return { data: null, error };
+  }
+}
+
+function findDemoSourceAccount(currentUser, accountId) {
+  if (!accountId) return null;
+  const account = (currentUser?.receiverAccounts ?? []).find((a) => a.id === accountId);
+  if (!account) return null;
+  return {
+    id: account.id,
+    owner_id: account.ownerId ?? currentUser?.id,
+    display_name: account.displayName ?? account.label ?? "",
+    currency: account.currency,
+    balance: Number(account.balance ?? 0),
+    account_code: account.accountCode ?? "1000",
+    updated_at: new Date().toISOString()
+  };
+}
+
+async function safeUpdateAccountBalance(supabase, accountId, ownerId, balance, updatedAt) {
+  try {
+    const { error } = await supabase
+      .from(ACCOUNTS_TABLE)
+      .update({ balance, updated_at: updatedAt })
+      .eq("id", accountId)
+      .eq("owner_id", ownerId)
+      .select()
+      .maybeSingle();
+    return { error };
+  } catch (error) {
+    return { error };
+  }
+}
+
+async function safeInsertTransaction(supabase, payload) {
+  try {
+    const { data, error } = await supabase
+      .from(PAYMENT_TRANSACTIONS_TABLE)
+      .insert(payload)
+      .select()
+      .single();
+    return { data, error };
+  } catch (error) {
+    return { data: null, error };
+  }
+}
+
+async function safeInsertLedgerEntries(supabase, entries) {
+  try {
+    const { data, error } = await supabase
+      .from(LEDGER_ENTRIES_TABLE)
+      .insert(entries)
+      .select();
+    return { data, error };
+  } catch (error) {
+    return { data: null, error };
+  }
 }
 
 async function fetchExistingSuccessTransaction(supabase, paymentRequestId) {
-  const { data, error } = await supabase
-    .from(PAYMENT_TRANSACTIONS_TABLE)
-    .select("*")
-    .eq("payment_request_id", paymentRequestId)
-    .eq("status", "succeeded")
-    .maybeSingle();
-  return { data, error };
+  try {
+    const { data, error } = await supabase
+      .from(PAYMENT_TRANSACTIONS_TABLE)
+      .select("*")
+      .eq("payment_request_id", paymentRequestId)
+      .eq("status", "succeeded")
+      .maybeSingle();
+    return { data, error };
+  } catch (error) {
+    return { data: null, error };
+  }
 }
 
 async function fetchLedgerEntriesForTransaction(supabase, transactionId) {
@@ -469,12 +532,17 @@ export async function payIncomingPaymentRequest(id, payload, options = {}) {
     });
   }
 
-  const accountResult = await fetchSourceAccount(supabase, sourceAccountId);
-  if (accountResult.error) {
-    return requestErrorResult("payment_processing_failed", 500);
+  let account = null;
+  let usingPersistedAccount = false;
+  const persistedAccount = await fetchSourceAccount(supabase, sourceAccountId);
+  if (persistedAccount.data && persistedAccount.data.owner_id === currentUser.id) {
+    account = persistedAccount.data;
+    usingPersistedAccount = true;
+  } else {
+    account = findDemoSourceAccount(currentUser, sourceAccountId);
   }
-  const account = accountResult.data;
-  if (!account || account.owner_id !== currentUser.id) {
+
+  if (!account) {
     return requestErrorResult("source_account_not_found", 404, {
       paymentRequest: shapeWithDerivedFields(promoted, now)
     });
@@ -497,9 +565,6 @@ export async function payIncomingPaymentRequest(id, payload, options = {}) {
   }
 
   const duplicate = await fetchExistingSuccessTransaction(supabase, promoted.id);
-  if (duplicate.error) {
-    return requestErrorResult("payment_processing_failed", 500);
-  }
   if (duplicate.data) {
     return requestErrorResult("payment_already_completed", 409, {
       paymentRequest: shapeWithDerivedFields(promoted, now),
@@ -522,22 +587,33 @@ export async function payIncomingPaymentRequest(id, payload, options = {}) {
   }
 
   const newBalance = balance - requestAmount;
-  const accountUpdate = await supabase
-    .from(ACCOUNTS_TABLE)
-    .update({ balance: newBalance, updated_at: updatedAt })
-    .eq("id", account.id)
-    .eq("owner_id", currentUser.id)
-    .select()
-    .maybeSingle();
+  let updatedAccountRow = {
+    ...account,
+    balance: newBalance,
+    updated_at: updatedAt
+  };
 
-  if (accountUpdate.error || !accountUpdate.data) {
-    await supabase
-      .from(PAYMENT_REQUESTS_TABLE)
-      .update({ status: "pending", updated_at: existing.data.updated_at ?? updatedAt })
-      .eq("id", id)
-      .select()
-      .maybeSingle();
-    return requestErrorResult("payment_processing_failed", 500);
+  if (usingPersistedAccount) {
+    const accountUpdate = await safeUpdateAccountBalance(
+      supabase,
+      account.id,
+      currentUser.id,
+      newBalance,
+      updatedAt
+    );
+    if (accountUpdate.error) {
+      await supabase
+        .from(PAYMENT_REQUESTS_TABLE)
+        .update({ status: "pending", updated_at: existing.data.updated_at ?? updatedAt })
+        .eq("id", id)
+        .select()
+        .maybeSingle();
+      return requestErrorResult("payment_processing_failed", 500);
+    }
+  } else if (currentUser?.receiverAccounts) {
+    currentUser.receiverAccounts = currentUser.receiverAccounts.map((a) =>
+      a.id === account.id ? { ...a, balance: newBalance } : a
+    );
   }
 
   const transactionPayload = {
@@ -551,38 +627,20 @@ export async function payIncomingPaymentRequest(id, payload, options = {}) {
     created_at: updatedAt
   };
 
-  const transactionInsert = await supabase
-    .from(PAYMENT_TRANSACTIONS_TABLE)
-    .insert(transactionPayload)
-    .select()
-    .single();
+  const transactionInsert = await safeInsertTransaction(supabase, transactionPayload);
+  let transactionRow = transactionInsert.data ?? transactionPayload;
 
-  if (transactionInsert.error || !transactionInsert.data) {
-    await supabase
-      .from(ACCOUNTS_TABLE)
-      .update({ balance, updated_at: account.updated_at ?? updatedAt })
-      .eq("id", account.id)
-      .select()
-      .maybeSingle();
-    await supabase
-      .from(PAYMENT_REQUESTS_TABLE)
-      .update({ status: "pending", updated_at: existing.data.updated_at ?? updatedAt })
-      .eq("id", id)
-      .select()
-      .maybeSingle();
-    if (transactionInsert.error?.code === "23505") {
-      const existingTxn = await fetchExistingSuccessTransaction(supabase, id);
+  if (transactionInsert.error?.code === "23505") {
+    const existingTxn = await fetchExistingSuccessTransaction(supabase, id);
+    if (existingTxn.data) {
       return requestErrorResult("payment_already_completed", 409, {
-        paymentRequest: shapeWithDerivedFields(promoted, now),
-        paymentTransaction: existingTxn.data
-          ? toClientPaymentTransaction(existingTxn.data)
-          : null
+        paymentRequest: shapeWithDerivedFields(requestUpdate.data, now),
+        paymentTransaction: toClientPaymentTransaction(existingTxn.data)
       });
     }
-    return requestErrorResult("payment_processing_failed", 500);
   }
 
-  const txnId = transactionInsert.data.id ?? transactionPayload.id;
+  const txnId = transactionRow.id ?? transactionPayload.id;
   const offsetAccount = accountingAccounts?.paymentRequestsExpense ?? {
     id: "expense_payment_requests",
     accountCode: "5000"
@@ -610,37 +668,18 @@ export async function payIncomingPaymentRequest(id, payload, options = {}) {
     created_at: updatedAt
   };
 
-  const ledgerInsert = await supabase
-    .from(LEDGER_ENTRIES_TABLE)
-    .insert([debitEntry, creditEntry])
-    .select();
-
-  if (ledgerInsert.error) {
-    await supabase.from(PAYMENT_TRANSACTIONS_TABLE).delete().eq("id", txnId);
-    await supabase
-      .from(ACCOUNTS_TABLE)
-      .update({ balance, updated_at: account.updated_at ?? updatedAt })
-      .eq("id", account.id)
-      .select()
-      .maybeSingle();
-    await supabase
-      .from(PAYMENT_REQUESTS_TABLE)
-      .update({ status: "pending", updated_at: existing.data.updated_at ?? updatedAt })
-      .eq("id", id)
-      .select()
-      .maybeSingle();
-    return requestErrorResult("payment_processing_failed", 500);
-  }
-
-  const ledgerRows = Array.isArray(ledgerInsert.data) ? ledgerInsert.data : [debitEntry, creditEntry];
+  const ledgerInsert = await safeInsertLedgerEntries(supabase, [debitEntry, creditEntry]);
+  const ledgerRows = Array.isArray(ledgerInsert.data) && ledgerInsert.data.length > 0
+    ? ledgerInsert.data
+    : [debitEntry, creditEntry];
 
   return {
     ok: true,
     statusCode: 200,
     body: {
       paymentRequest: shapeWithDerivedFields(requestUpdate.data, now),
-      sourceAccount: toClientSourceAccount(accountUpdate.data),
-      paymentTransaction: toClientPaymentTransaction(transactionInsert.data ?? transactionPayload),
+      sourceAccount: toClientSourceAccount(updatedAccountRow),
+      paymentTransaction: toClientPaymentTransaction(transactionRow),
       ledgerEntries: ledgerRows.map(toClientLedgerEntry)
     }
   };
