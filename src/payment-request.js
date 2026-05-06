@@ -1,5 +1,7 @@
 import { demoUser, friends, SUPPORTED_CURRENCIES } from "./mock-data.js";
 
+const ALL_USERS = [demoUser, ...friends];
+
 export const ERROR_MESSAGES = {
   invalid_amount: "Amount must be greater than zero and less than 1,000,000.",
   recipient_required: "Select an active friend before sending the request.",
@@ -23,14 +25,26 @@ export const ERROR_MESSAGES = {
   decline_confirmation_required: "Confirm before declining this request.",
   decline_not_allowed: "Only pending incoming requests can be declined.",
   decline_failed: "The request could not be declined. Try again.",
-  unavailable_decline_action: "This request cannot be declined because it is no longer pending."
+  unavailable_decline_action: "This request cannot be declined because it is no longer pending.",
+  payment_confirmation_required: "Confirm payment before processing this request.",
+  payment_not_allowed: "This request cannot be paid because it is no longer pending.",
+  source_account_required: "Select a source account before paying.",
+  source_account_not_found: "Select a valid source account.",
+  source_account_currency_mismatch: "The selected account currency does not match the request.",
+  source_account_insufficient_balance: "The selected account does not have enough balance to pay this request.",
+  payment_already_completed: "This request has already been paid.",
+  payment_processing_failed: "Payment failed. No changes were made. Try again.",
+  no_matching_source_account: "You have no account in this currency. Payment is unavailable.",
+  unavailable_pay_action: "This request cannot be paid because it is no longer pending.",
+  pay_failed: "The payment could not be completed. Try again."
 };
 
 export const PAYMENT_REQUEST_STATUS = {
   pending: "pending",
   withdrawn: "withdrawn",
   declined: "declined",
-  expired: "expired"
+  expired: "expired",
+  paid: "paid"
 };
 
 export const EXPIRY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
@@ -160,7 +174,7 @@ export function currencySymbol(currency) {
   return parts.find((part) => part.type === "currency")?.value ?? currency;
 }
 
-export function findRecipientDisplay(recipientId, friendList = friends) {
+export function findRecipientDisplay(recipientId, friendList = ALL_USERS) {
   const recipient = friendList.find((friend) => friend.id === recipientId);
   return {
     id: recipientId,
@@ -176,6 +190,7 @@ export function formatStatusLabel(status) {
   if (normalized === PAYMENT_REQUEST_STATUS.withdrawn) return "withdrawn";
   if (normalized === PAYMENT_REQUEST_STATUS.declined) return "declined";
   if (normalized === PAYMENT_REQUEST_STATUS.expired) return "expired";
+  if (normalized === PAYMENT_REQUEST_STATUS.paid) return "paid";
   return String(status ?? "Unknown");
 }
 
@@ -290,7 +305,7 @@ export function scopeIncomingPaymentRequests(requests, currentUser = demoUser) {
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 }
 
-export function findSenderDisplay(senderId, friendList = friends) {
+export function findSenderDisplay(senderId, friendList = ALL_USERS) {
   const sender = friendList.find((friend) => friend.id === senderId);
   return {
     id: senderId,
@@ -337,4 +352,62 @@ export function filterIncomingPaymentRequests(requests, filters = {}, friendsByI
 
 export function unavailableDeclineMessage(errorCode) {
   return ERROR_MESSAGES[errorCode] ?? ERROR_MESSAGES.unavailable_decline_action;
+}
+
+export function unavailablePayMessage(errorCode) {
+  return ERROR_MESSAGES[errorCode] ?? ERROR_MESSAGES.unavailable_pay_action;
+}
+
+export function getCurrentUserSourceAccounts(currentUser = demoUser) {
+  return [...(currentUser?.receiverAccounts ?? [])].filter(
+    (account) => (account.ownerId ?? currentUser?.id) === currentUser?.id
+  );
+}
+
+export function findEligibleSourceAccounts(request, currentUser = demoUser) {
+  if (!request?.currency) return [];
+  return getCurrentUserSourceAccounts(currentUser).filter(
+    (account) => account.currency === request.currency
+  );
+}
+
+export function defaultSelectedSourceAccountId(request, currentUser = demoUser) {
+  const eligible = findEligibleSourceAccounts(request, currentUser);
+  return eligible.length === 1 ? eligible[0].id : "";
+}
+
+export function findSelectedSourceAccount(accountId, currentUser = demoUser) {
+  if (!accountId) return null;
+  return (
+    getCurrentUserSourceAccounts(currentUser).find((account) => account.id === accountId) ?? null
+  );
+}
+
+export function canConfirmPayment({ request, selectedAccountId, currentUser = demoUser } = {}) {
+  if (!request) return false;
+  if (normalizeSearch(request.status) !== PAYMENT_REQUEST_STATUS.pending) return false;
+
+  const account = findSelectedSourceAccount(selectedAccountId, currentUser);
+  if (!account) return false;
+  if (account.currency !== request.currency) return false;
+  if (Number(account.balance) < Number(request.amount)) return false;
+  return true;
+}
+
+export function canPayIncoming(request, currentUser = demoUser, now = new Date()) {
+  if (!request) return false;
+  if (!isIncomingPaymentRequest(request, currentUser)) return false;
+  if (normalizeSearch(request.status) !== PAYMENT_REQUEST_STATUS.pending) return false;
+  return !isPastExpiry(request.createdAt ?? request.created_at, now);
+}
+
+export function describeSourceAccountState(request, currentUser = demoUser) {
+  const eligible = findEligibleSourceAccounts(request, currentUser);
+  if (eligible.length === 0) {
+    return { state: "none", accounts: [], message: ERROR_MESSAGES.no_matching_source_account };
+  }
+  if (eligible.length === 1) {
+    return { state: "single", accounts: eligible };
+  }
+  return { state: "multiple", accounts: eligible };
 }

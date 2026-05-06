@@ -496,7 +496,7 @@ dd {
 
 .outgoing-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) 108px;
   gap: 12px;
   align-items: center;
   padding: 14px;
@@ -728,7 +728,7 @@ dd {
 }
 
 .incoming-row .row-main {
-  grid-template-columns: minmax(120px, 1fr) minmax(180px, 1.6fr) auto auto auto;
+  grid-template-columns: minmax(120px, 1fr) minmax(180px, 1.6fr) 110px 110px 90px;
 }
 
 .incoming-row .days-remaining {
@@ -752,3 +752,81 @@ dd {
   }
 }
 
+
+.status-paid {
+  background: #e6f4ea;
+  color: #137333;
+}
+
+.row-actions .pay-action {
+  margin-right: 0.5rem;
+}
+
+.pay-dialog {
+  min-width: min(420px, 90vw);
+  max-width: 92vw;
+}
+
+.pay-dialog .pay-account-fixed,
+.pay-dialog .pay-account-label {
+  display: block;
+  margin: 0.75rem 0 0.5rem;
+}
+
+.pay-dialog .pay-account-select {
+  display: block;
+  width: 100%;
+  margin-top: 0.25rem;
+  padding: 0.5rem;
+  border: 1px solid var(--border, #d0d0d0);
+  border-radius: 6px;
+  font-size: 1rem;
+}
+
+.pay-dialog .pay-balance-summary {
+  margin: 0.25rem 0 0.5rem;
+  color: var(--muted, #6a6a6a);
+  font-size: 0.9rem;
+}
+
+.pay-dialog .pay-no-account {
+  margin: 0.5rem 0;
+}
+
+.pay-dialog .pay-note {
+  margin: 0.25rem 0 0.5rem;
+  font-size: 0.9rem;
+}
+
+.banner.banner-info {
+  background: #eef4ff;
+  color: #1a4ed8;
+  border: 1px solid #c2d4ff;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  margin: 0.5rem 0;
+}
+
+@media (max-width: 600px) {
+  .pay-dialog {
+    min-width: unset;
+    width: 100%;
+  }
+  .pay-dialog .dialog-actions {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .pay-dialog .dialog-actions button {
+    width: 100%;
+  }
+  .row-actions {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+}
+
+@media (max-width: 820px) {
+  .pay-dialog {
+    max-width: 96vw;
+  }
+}

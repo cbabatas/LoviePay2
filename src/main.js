@@ -4,14 +4,19 @@ const ALL_USERS = [demoUser, ...friends];
 import {
   ERROR_MESSAGES,
   canDeclineIncoming,
+  canPayIncoming,
   canWithdrawPaymentRequest,
   computeDaysRemaining,
   computeExpiresAt,
   currencySymbol,
+  defaultSelectedSourceAccountId,
   deriveCurrency,
+  describeSourceAccountState,
   filterIncomingPaymentRequests,
   filterOutgoingPaymentRequests,
+  findEligibleSourceAccounts,
   findRecipientDisplay,
+  findSelectedSourceAccount,
   findSenderDisplay,
   formatAmount,
   formatPlainAmount,
@@ -28,8 +33,12 @@ import {
   fetchIncomingPaymentRequests,
   getOutgoingPaymentRequest,
   listOutgoingPaymentRequests,
+  payIncomingPaymentRequest,
+  setCurrentUserId,
   withdrawPaymentRequest
 } from "./request-api.js";
+
+const PROCESSING_DELAY_MS = 2200;
 
 const app = document.querySelector("#app");
 const SESSION_KEY = "loviepay.demoSignedIn";
@@ -85,9 +94,17 @@ const state = {
     decline: null,
     declining: false,
     declineError: "",
+    pay: null,
+    paying: false,
+    payProcessing: false,
+    payError: "",
     successMessage: ""
   }
 };
+
+if (state.currentUser) {
+  setCurrentUserId(state.currentUser.id);
+}
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -149,6 +166,10 @@ function resetIncomingTransient() {
   state.incoming.decline = null;
   state.incoming.declineError = "";
   state.incoming.declining = false;
+  state.incoming.pay = null;
+  state.incoming.paying = false;
+  state.incoming.payProcessing = false;
+  state.incoming.payError = "";
 }
 
 function resetListsState() {
@@ -259,13 +280,14 @@ function renderWorkspace() {
         ${state.view === "incoming-detail" ? renderIncomingDetailView() : ""}
         ${renderWithdrawDialog()}
         ${renderDeclineDialog()}
+        ${renderPayDialog()}
       </main>
     </div>
   `;
 }
 
 function renderCreateView() {
-  const accountOptions = demoUser.receiverAccounts
+  const accountOptions = state.currentUser.receiverAccounts
     .map(
       (account) => `
         <option value="${account.id}" ${state.receiverAccountId === account.id ? "selected" : ""}>
@@ -381,7 +403,7 @@ function searchFriendsForCreate(query) {
   if (!normalized) return [];
 
   return friends.filter((friend) => {
-    if (!friend.active || friend.id === demoUser.id) return false;
+    if (!friend.active || friend.id === state.currentUser.id) return false;
     return [friend.fullName, friend.email, friend.phone]
       .map((value) => String(value ?? "").toLowerCase())
       .join(" ")
@@ -500,7 +522,7 @@ function renderOutgoingView() {
       <div class="section-heading">
         <div>
           <h2 id="outgoing-title">Outgoing requests</h2>
-          <p class="muted">Requests created by ${escapeHtml(demoUser.fullName)}.</p>
+          <p class="muted">Requests created by ${escapeHtml(state.currentUser.fullName)}.</p>
         </div>
         ${state.outgoing.successMessage ? `<p class="banner banner-success" role="status">${escapeHtml(state.outgoing.successMessage)}</p>` : ""}
       </div>
@@ -512,6 +534,9 @@ function renderOutgoingView() {
             <option value="">All statuses</option>
             <option value="pending" ${state.outgoing.status === "pending" ? "selected" : ""}>Pending</option>
             <option value="withdrawn" ${state.outgoing.status === "withdrawn" ? "selected" : ""}>Withdrawn</option>
+            <option value="declined" ${state.outgoing.status === "declined" ? "selected" : ""}>Declined</option>
+            <option value="expired" ${state.outgoing.status === "expired" ? "selected" : ""}>Expired</option>
+            <option value="paid" ${state.outgoing.status === "paid" ? "selected" : ""}>Paid</option>
           </select>
         </label>
         <label for="outgoing-recipient-query">
@@ -645,7 +670,7 @@ function filteredIncomingItems() {
 }
 
 function renderDaysRemainingLabel(request) {
-  if (request.status !== "pending") return "expired";
+  if (request.status !== "pending") return "-";
   const days = request.daysRemaining ?? 0;
   if (days <= 0) return "expires today";
   if (days === 1) return "1 day left";
@@ -674,7 +699,7 @@ function renderIncomingView() {
       <div class="section-heading">
         <div>
           <h2 id="incoming-title">Incoming requests</h2>
-          <p class="muted">Requests addressed to ${escapeHtml(demoUser.fullName)}.</p>
+          <p class="muted">Requests addressed to ${escapeHtml(state.currentUser.fullName)}.</p>
         </div>
         ${state.incoming.successMessage ? `<p class="banner banner-success" role="status">${escapeHtml(state.incoming.successMessage)}</p>` : ""}
       </div>
@@ -687,6 +712,7 @@ function renderIncomingView() {
             <option value="pending" ${state.incoming.status === "pending" ? "selected" : ""}>Pending</option>
             <option value="declined" ${state.incoming.status === "declined" ? "selected" : ""}>Declined</option>
             <option value="expired" ${state.incoming.status === "expired" ? "selected" : ""}>Expired</option>
+            <option value="paid" ${state.incoming.status === "paid" ? "selected" : ""}>Paid</option>
           </select>
         </label>
         <label for="incoming-sender-query">
@@ -730,6 +756,7 @@ function renderIncomingRows(rows, hasFilters) {
 function renderIncomingRow(request) {
   const sender = findSenderDisplay(request.senderId);
   const declinable = canDeclineIncoming(request);
+  const payable = canPayIncoming(request, state.currentUser);
   const daysLabel = renderDaysRemainingLabel(request);
 
   return `
@@ -746,9 +773,16 @@ function renderIncomingRow(request) {
       </button>
       <div class="row-actions">
         ${
+          payable
+            ? `<button type="button" class="primary-action pay-action" data-pay="${escapeHtml(request.id)}" data-source="list">Pay</button>`
+            : ""
+        }
+        ${
           declinable
             ? `<button type="button" class="secondary-action danger-action" data-decline="${escapeHtml(request.id)}" data-source="list">Decline</button>`
-            : `<p class="ineligible-message">${escapeHtml(ERROR_MESSAGES.unavailable_decline_action)}</p>`
+            : request.status === "pending"
+              ? `<p class="ineligible-message">${escapeHtml(ERROR_MESSAGES.unavailable_decline_action)}</p>`
+              : ""
         }
       </div>
     </li>
@@ -801,9 +835,16 @@ function renderIncomingDetailView() {
       </dl>
       <div class="detail-actions">
         ${
+          canPayIncoming(request, state.currentUser)
+            ? `<button type="button" class="primary-action pay-action" data-pay="${escapeHtml(request.id)}" data-source="detail">Pay</button>`
+            : ""
+        }
+        ${
           declinable
             ? `<button type="button" class="primary-action danger-primary" data-decline="${escapeHtml(request.id)}" data-source="detail">Decline</button>`
-            : `<p class="ineligible-message">${escapeHtml(ERROR_MESSAGES.unavailable_decline_action)}</p>`
+            : request.status === "pending"
+              ? `<p class="ineligible-message">${escapeHtml(ERROR_MESSAGES.unavailable_decline_action)}</p>`
+              : ""
         }
       </div>
     </section>
@@ -832,6 +873,98 @@ function renderDeclineDialog() {
           <button type="button" class="secondary-action" id="cancel-decline">Cancel</button>
           <button type="button" class="primary-action danger-primary" id="confirm-decline" ${state.incoming.declining ? "disabled" : ""}>
             ${state.incoming.declining ? "Declining..." : "Confirm decline"}
+          </button>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function renderPayDialog() {
+  const dialog = state.incoming.pay;
+  if (!dialog) return "";
+  const request =
+    state.incoming.items.find((item) => item.id === dialog.requestId) ??
+    state.incoming.detail;
+  if (!request) return "";
+
+  const sender = findSenderDisplay(request.senderId);
+  const eligible = findEligibleSourceAccounts(request, state.currentUser);
+  const description = describeSourceAccountState(request, state.currentUser);
+  const selectedAccount = findSelectedSourceAccount(dialog.selectedAccountId, state.currentUser);
+  const balance = selectedAccount ? Number(selectedAccount.balance) : null;
+  const amount = Number(request.amount);
+  const insufficient =
+    selectedAccount && balance < amount && !state.incoming.payProcessing;
+  const noAccount = description.state === "none";
+  const requiresSelection = description.state === "multiple" && !selectedAccount;
+
+  const confirmDisabled =
+    state.incoming.paying ||
+    state.incoming.payProcessing ||
+    noAccount ||
+    requiresSelection ||
+    !selectedAccount ||
+    insufficient;
+
+  const accountSelector =
+    description.state === "single"
+      ? `<p class="pay-account-fixed">Source account: <strong>${escapeHtml(eligible[0].displayName ?? eligible[0].label)}</strong> (${escapeHtml(eligible[0].currency)} ${escapeHtml(formatAmount(eligible[0].balance, eligible[0].currency))})</p>`
+      : description.state === "multiple"
+        ? `<label class="pay-account-label" for="pay-source-account">
+            Source account
+            <select id="pay-source-account" class="pay-account-select">
+              <option value="">Select an account</option>
+              ${eligible
+                .map(
+                  (account) => `
+                <option value="${escapeHtml(account.id)}" ${dialog.selectedAccountId === account.id ? "selected" : ""}>
+                  ${escapeHtml(account.displayName ?? account.label)} — ${escapeHtml(formatAmount(account.balance, account.currency))} ${escapeHtml(account.currency)}
+                </option>
+              `
+                )
+                .join("")}
+            </select>
+          </label>`
+        : `<p class="banner banner-error pay-no-account" role="alert">${escapeHtml(ERROR_MESSAGES.no_matching_source_account)}</p>`;
+
+  const balanceSummary = selectedAccount
+    ? `<p class="pay-balance-summary">Balance: ${escapeHtml(formatAmount(balance, selectedAccount.currency))} ${escapeHtml(selectedAccount.currency)}</p>`
+    : "";
+
+  const insufficientBanner = insufficient
+    ? `<p class="banner banner-error" role="alert">${escapeHtml(ERROR_MESSAGES.source_account_insufficient_balance)}</p>`
+    : "";
+
+  const errorBanner = state.incoming.payError
+    ? `<p class="banner banner-error" role="alert">${escapeHtml(state.incoming.payError)}</p>`
+    : "";
+
+  const processingBanner = state.incoming.payProcessing
+    ? `<p class="banner banner-info" role="status">Processing payment...</p>`
+    : "";
+
+  const confirmLabel = state.incoming.payProcessing
+    ? "Processing..."
+    : state.incoming.paying
+      ? "Confirming..."
+      : "Confirm payment";
+
+  return `
+    <div class="modal-backdrop" role="presentation" data-pay-backdrop>
+      <section class="confirm-dialog pay-dialog" role="dialog" aria-modal="true" aria-labelledby="pay-title">
+        <h2 id="pay-title">Pay request?</h2>
+        <p>Confirm payment to ${escapeHtml(sender.fullName)} for <strong>${escapeHtml(formatAmount(request.amount, request.currency))} ${escapeHtml(request.currency)}</strong>.</p>
+        ${request.note ? `<p class="pay-note muted">Note: ${escapeHtml(request.note)}</p>` : ""}
+        ${accountSelector}
+        ${balanceSummary}
+        ${insufficientBanner}
+        ${errorBanner}
+        ${processingBanner}
+        <div class="dialog-actions">
+          <button type="button" class="secondary-action" id="cancel-pay" ${state.incoming.payProcessing ? "disabled" : ""}>Cancel</button>
+          <button type="button" class="primary-action" id="confirm-pay" ${confirmDisabled ? "disabled" : ""}>
+            ${escapeHtml(confirmLabel)}
           </button>
         </div>
       </section>
@@ -881,6 +1014,7 @@ function bindSignIn() {
       state.currentUser = matched;
       sessionStorage.setItem(SESSION_KEY, "true");
       sessionStorage.setItem(SESSION_USER_KEY, matched.id);
+      setCurrentUserId(matched.id);
       state.signInError = "";
       state.view = "create";
       resetRequestState();
@@ -900,6 +1034,7 @@ function bindWorkspace() {
     state.signInError = "";
     sessionStorage.removeItem(SESSION_KEY);
     sessionStorage.removeItem(SESSION_USER_KEY);
+    setCurrentUserId(null);
     resetRequestState();
     resetListsState();
     render();
@@ -1260,6 +1395,148 @@ function bindIncomingView() {
   }
 
   document.querySelector("#confirm-decline")?.addEventListener("click", confirmDecline);
+
+  document.querySelectorAll("[data-pay]").forEach((button) => {
+    button.addEventListener("click", () => {
+      openPayDialog(button.dataset.pay, button.dataset.source);
+    });
+  });
+
+  document.querySelector("#cancel-pay")?.addEventListener("click", () => {
+    closePayDialog();
+  });
+
+  document.querySelector("[data-pay-backdrop]")?.addEventListener("click", (event) => {
+    if (event.target === event.currentTarget) closePayDialog();
+  });
+
+  document.querySelector("#pay-source-account")?.addEventListener("change", (event) => {
+    if (state.incoming.pay) {
+      state.incoming.pay.selectedAccountId = event.target.value;
+      state.incoming.payError = "";
+      render();
+    }
+  });
+
+  if (state.incoming.pay && !state.incoming.payProcessing) {
+    document.addEventListener("keydown", handlePayKeydown, { once: true });
+  }
+
+  document.querySelector("#confirm-pay")?.addEventListener("click", confirmPay);
+}
+
+function handlePayKeydown(event) {
+  if (event.key === "Escape" && state.incoming.pay && !state.incoming.payProcessing) {
+    closePayDialog();
+  }
+}
+
+function openPayDialog(requestId, source) {
+  const request =
+    state.incoming.items.find((item) => item.id === requestId) ?? state.incoming.detail;
+  const selectedAccountId =
+    state.incoming.pay?.requestId === requestId
+      ? state.incoming.pay.selectedAccountId
+      : defaultSelectedSourceAccountId(request, state.currentUser);
+  state.incoming.pay = {
+    requestId,
+    source,
+    selectedAccountId
+  };
+  state.incoming.payError = "";
+  state.incoming.payProcessing = false;
+  render();
+}
+
+function closePayDialog() {
+  if (state.incoming.payProcessing) return;
+  state.incoming.pay = null;
+  state.incoming.payError = "";
+  state.incoming.paying = false;
+  render();
+}
+
+async function confirmPay() {
+  const dialog = state.incoming.pay;
+  if (!dialog || state.incoming.paying || state.incoming.payProcessing) return;
+
+  const request =
+    state.incoming.items.find((item) => item.id === dialog.requestId) ?? state.incoming.detail;
+  if (!request) return;
+
+  const selectedAccount = findSelectedSourceAccount(dialog.selectedAccountId, state.currentUser);
+  if (!selectedAccount) {
+    state.incoming.payError = ERROR_MESSAGES.source_account_required;
+    render();
+    return;
+  }
+  if (Number(selectedAccount.balance) < Number(request.amount)) {
+    state.incoming.payError = ERROR_MESSAGES.source_account_insufficient_balance;
+    render();
+    return;
+  }
+
+  state.incoming.paying = true;
+  state.incoming.payProcessing = true;
+  state.incoming.payError = "";
+  render();
+
+  const startTime = Date.now();
+  let payResponse = null;
+  let payError = null;
+  try {
+    payResponse = await payIncomingPaymentRequest(dialog.requestId, {
+      confirm: true,
+      sourceAccountId: dialog.selectedAccountId
+    });
+  } catch (error) {
+    payError = error;
+  }
+
+  const elapsed = Date.now() - startTime;
+  const remaining = Math.max(0, PROCESSING_DELAY_MS - elapsed);
+  if (remaining > 0) {
+    await new Promise((resolve) => setTimeout(resolve, remaining));
+  }
+
+  state.incoming.payProcessing = false;
+  state.incoming.paying = false;
+
+  if (payError) {
+    if (payError.body?.paymentRequest) {
+      mergeUpdatedIncomingRequest(payError.body.paymentRequest);
+    }
+    if (payError.body?.sourceAccount) {
+      applyUpdatedSourceAccount(payError.body.sourceAccount);
+    }
+    state.incoming.payError = payError.message || ERROR_MESSAGES.pay_failed;
+    render();
+    return;
+  }
+
+  if (payResponse?.paymentRequest) {
+    mergeUpdatedIncomingRequest(payResponse.paymentRequest);
+  }
+  if (payResponse?.sourceAccount) {
+    applyUpdatedSourceAccount(payResponse.sourceAccount);
+  }
+  state.incoming.pay = null;
+  state.incoming.successMessage = "Payment completed.";
+  render();
+}
+
+function applyUpdatedSourceAccount(updated) {
+  if (!state.currentUser?.receiverAccounts) return;
+  state.currentUser.receiverAccounts = state.currentUser.receiverAccounts.map((account) =>
+    account.id === updated.id
+      ? {
+          ...account,
+          balance: Number(updated.balance),
+          displayName: updated.displayName ?? account.displayName ?? account.label,
+          accountCode: updated.accountCode ?? account.accountCode
+        }
+      : account
+  );
 }
 
 function handleDeclineKeydown(event) {
@@ -1304,7 +1581,7 @@ async function loadIncomingRequests(force = false) {
     state.incoming.error = error.message || ERROR_MESSAGES.incoming_list_failed;
     if (!state.incoming.loaded) {
       const fallback = paymentRequests
-        .filter((request) => request.recipientId === demoUser.id)
+        .filter((request) => request.recipientId === state.currentUser.id)
         .map((request) => shapeIncomingForDisplay(request));
       state.incoming.items = fallback;
       state.incoming.error = "";

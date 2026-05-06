@@ -42,6 +42,178 @@ function createSupabaseMock({ data, error } = {}) {
   return { supabase, calls };
 }
 
+function createMultiTableSupabaseMock(initialTables, options = {}) {
+  const tables = {};
+  for (const [name, rows] of Object.entries(initialTables ?? {})) {
+    tables[name] = (rows ?? []).map((row) => ({ ...row }));
+  }
+  const calls = [];
+  const failures = options.failures ?? {};
+
+  function applyFilters(rows, filters) {
+    return rows.filter((row) =>
+      filters.every((filter) => row[filter.field] === filter.value)
+    );
+  }
+
+  const supabase = {
+    from(tableName) {
+      if (!tables[tableName]) tables[tableName] = [];
+      const rows = tables[tableName];
+      const tableFailures = failures[tableName] ?? {};
+
+      const call = {
+        table: tableName,
+        operation: "select",
+        filters: [],
+        orderBy: null,
+        updatePayload: null,
+        insertPayload: null,
+        deletePayload: null
+      };
+      calls.push(call);
+
+      const builder = {
+        select(columns = "*") {
+          call.select = columns;
+          return builder;
+        },
+        eq(field, value) {
+          call.filters.push({ field, value });
+          return builder;
+        },
+        order(field, orderOptions) {
+          call.orderBy = { field, ...orderOptions };
+          if (tableFailures.list || tableFailures.select) {
+            return Promise.resolve({
+              data: null,
+              error: tableFailures.list ?? tableFailures.select
+            });
+          }
+          const matched = applyFilters(rows, call.filters)
+            .map((row) => ({ ...row }))
+            .sort((a, b) => {
+              const aVal = a[field];
+              const bVal = b[field];
+              const aTime = new Date(aVal).getTime();
+              const bTime = new Date(bVal).getTime();
+              if (Number.isNaN(aTime) || Number.isNaN(bTime)) {
+                if (aVal < bVal) return orderOptions?.ascending === false ? 1 : -1;
+                if (aVal > bVal) return orderOptions?.ascending === false ? -1 : 1;
+                return 0;
+              }
+              return orderOptions?.ascending === false ? bTime - aTime : aTime - bTime;
+            });
+          return Promise.resolve({ data: matched, error: null });
+        },
+        maybeSingle() {
+          if (call.operation === "update") {
+            if (tableFailures.update) {
+              return Promise.resolve({ data: null, error: tableFailures.update });
+            }
+            const row = applyFilters(rows, call.filters)[0];
+            if (!row) return Promise.resolve({ data: null, error: null });
+            Object.assign(row, call.updatePayload);
+            return Promise.resolve({ data: { ...row }, error: null });
+          }
+          if (tableFailures.select) {
+            return Promise.resolve({ data: null, error: tableFailures.select });
+          }
+          const row = applyFilters(rows, call.filters)[0] ?? null;
+          return Promise.resolve({ data: row ? { ...row } : null, error: null });
+        },
+        single() {
+          if (call.operation === "insert") {
+            if (tableFailures.insert) {
+              return Promise.resolve({ data: null, error: tableFailures.insert });
+            }
+            const inserted = Array.isArray(call.insertPayload)
+              ? call.insertPayload[0]
+              : call.insertPayload;
+            if (Array.isArray(call.insertPayload)) {
+              for (const row of call.insertPayload) rows.push({ ...row });
+            } else {
+              rows.push({ ...inserted });
+            }
+            return Promise.resolve({ data: { ...inserted }, error: null });
+          }
+          const row = applyFilters(rows, call.filters)[0] ?? null;
+          return Promise.resolve({ data: row ? { ...row } : null, error: null });
+        },
+        update(payload) {
+          call.operation = "update";
+          call.updatePayload = payload;
+          return builder;
+        },
+        insert(payload) {
+          call.operation = "insert";
+          call.insertPayload = payload;
+          let inserted = false;
+          function commit() {
+            if (inserted) return;
+            inserted = true;
+            if (Array.isArray(payload)) {
+              for (const row of payload) rows.push({ ...row });
+            } else {
+              rows.push({ ...payload });
+            }
+          }
+          function arrayResult() {
+            if (tableFailures.insert) return { data: null, error: tableFailures.insert };
+            commit();
+            const data = Array.isArray(payload)
+              ? payload.map((r) => ({ ...r }))
+              : [{ ...payload }];
+            return { data, error: null };
+          }
+          function singleResult() {
+            if (tableFailures.insert) return { data: null, error: tableFailures.insert };
+            commit();
+            const first = Array.isArray(payload) ? payload[0] : payload;
+            return { data: first ? { ...first } : null, error: null };
+          }
+          const insertChain = {
+            select() {
+              const selectChain = {
+                single() {
+                  return Promise.resolve(singleResult());
+                },
+                then(resolve, reject) {
+                  return Promise.resolve(arrayResult()).then(resolve, reject);
+                }
+              };
+              return selectChain;
+            },
+            then(resolve, reject) {
+              return Promise.resolve(arrayResult()).then(resolve, reject);
+            }
+          };
+          return insertChain;
+        },
+        delete() {
+          call.operation = "delete";
+          return {
+            eq(field, value) {
+              call.filters.push({ field, value });
+              const before = rows.length;
+              for (let i = rows.length - 1; i >= 0; i -= 1) {
+                if (call.filters.every((filter) => rows[i][filter.field] === filter.value)) {
+                  rows.splice(i, 1);
+                }
+              }
+              return Promise.resolve({ data: null, error: null, count: before - rows.length });
+            }
+          };
+        }
+      };
+
+      return builder;
+    }
+  };
+
+  return { supabase, tables, calls };
+}
+
 function createReadUpdateSupabaseMock(initialRows, options = {}) {
   const rows = initialRows.map((row) => ({ ...row }));
   const calls = [];
@@ -1000,4 +1172,422 @@ test("declineIncomingPaymentRequest success transitions pending row to declined 
     { field: "recipient_id", value: "demo_user_001" },
     { field: "status", value: "pending" }
   ]);
+});
+
+import { payIncomingPaymentRequest } from "../../api/payment-requests.js";
+import {
+  canPayIncoming,
+  defaultSelectedSourceAccountId,
+  describeSourceAccountState,
+  findEligibleSourceAccounts,
+  canConfirmPayment,
+  formatStatusLabel,
+  PAYMENT_REQUEST_STATUS
+} from "../../src/payment-request.js";
+
+const payNow = () => new Date("2026-05-06T13:30:00.000Z");
+
+function buildPayTables(overrides = {}) {
+  const requestRows = overrides.requests ?? [
+    {
+      id: "req_pay_pending",
+      sender_id: "friend_001",
+      recipient_id: "demo_user_001",
+      receiver_account_id: "friend_001_acct_eur",
+      amount: 88,
+      currency: "EUR",
+      note: "Concert ticket",
+      status: "pending",
+      hash: "hash_pay_pending",
+      shareable_link: "/r/hash_pay_pending",
+      created_at: "2026-05-06T13:00:00.000Z",
+      updated_at: "2026-05-06T13:00:00.000Z"
+    }
+  ];
+  const accountRows = overrides.accounts ?? [
+    {
+      id: "acct_eur_main",
+      owner_id: "demo_user_001",
+      display_name: "Everyday EUR",
+      currency: "EUR",
+      balance: 412,
+      account_code: "1000",
+      created_at: "2026-05-01T00:00:00.000Z",
+      updated_at: "2026-05-01T00:00:00.000Z"
+    },
+    {
+      id: "acct_usd_travel",
+      owner_id: "demo_user_001",
+      display_name: "Travel USD",
+      currency: "USD",
+      balance: 280,
+      account_code: "1010",
+      created_at: "2026-05-01T00:00:00.000Z",
+      updated_at: "2026-05-01T00:00:00.000Z"
+    }
+  ];
+
+  return {
+    payment_requests: requestRows,
+    accounts: accountRows,
+    payment_transactions: overrides.payment_transactions ?? [],
+    ledger_entries: overrides.ledger_entries ?? []
+  };
+}
+
+let _payIdSeq = 0;
+function payIdGenerator() {
+  _payIdSeq = 0;
+  return () => {
+    _payIdSeq += 1;
+    return `pay_id_${_payIdSeq}`;
+  };
+}
+
+test("payIncomingPaymentRequest pays a pending request, marks it paid, deducts balance, writes one txn and balanced ledger", async () => {
+  const { supabase, tables } = createMultiTableSupabaseMock(buildPayTables());
+
+  const result = await payIncomingPaymentRequest(
+    "req_pay_pending",
+    { confirm: true, sourceAccountId: "acct_eur_main" },
+    { supabase, now: payNow, generateId: payIdGenerator() }
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(result.statusCode, 200);
+  assert.equal(result.body.paymentRequest.status, "paid");
+  assert.equal(result.body.paymentRequest.updatedAt, "2026-05-06T13:30:00.000Z");
+  assert.equal(result.body.sourceAccount.balance, 324);
+  assert.equal(tables.accounts.find((a) => a.id === "acct_eur_main").balance, 324);
+  assert.equal(tables.payment_transactions.length, 1);
+  assert.equal(tables.payment_transactions[0].status, "succeeded");
+  assert.equal(tables.payment_transactions[0].type, "payment");
+  assert.equal(tables.payment_transactions[0].amount, 88);
+  assert.equal(tables.payment_transactions[0].source_account_id, "acct_eur_main");
+
+  assert.equal(tables.ledger_entries.length, 2);
+  const debits = tables.ledger_entries.filter((e) => e.entry_type === "debit");
+  const credits = tables.ledger_entries.filter((e) => e.entry_type === "credit");
+  assert.equal(debits.length, 1);
+  assert.equal(credits.length, 1);
+  const debitTotal = debits.reduce((sum, e) => sum + Number(e.amount), 0);
+  const creditTotal = credits.reduce((sum, e) => sum + Number(e.amount), 0);
+  assert.equal(debitTotal, creditTotal);
+  assert.equal(debitTotal, 88);
+});
+
+test("payIncomingPaymentRequest requires confirm=true", async () => {
+  const { supabase } = createMultiTableSupabaseMock(buildPayTables());
+  const result = await payIncomingPaymentRequest(
+    "req_pay_pending",
+    { sourceAccountId: "acct_eur_main" },
+    { supabase, now: payNow }
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.statusCode, 400);
+  assert.equal(result.body.error.code, "payment_confirmation_required");
+});
+
+test("payIncomingPaymentRequest scopes to current user (recipient_id)", async () => {
+  const tablesData = buildPayTables({
+    requests: [
+      {
+        id: "req_pay_outgoing",
+        sender_id: "demo_user_001",
+        recipient_id: "friend_001",
+        receiver_account_id: "friend_001_acct_eur",
+        amount: 50,
+        currency: "EUR",
+        note: "",
+        status: "pending",
+        hash: "h",
+        shareable_link: "/r/h",
+        created_at: "2026-05-06T13:00:00.000Z",
+        updated_at: "2026-05-06T13:00:00.000Z"
+      }
+    ]
+  });
+  const { supabase } = createMultiTableSupabaseMock(tablesData);
+  const result = await payIncomingPaymentRequest(
+    "req_pay_outgoing",
+    { confirm: true, sourceAccountId: "acct_eur_main" },
+    { supabase, now: payNow }
+  );
+  assert.equal(result.statusCode, 404);
+  assert.equal(result.body.error.code, "request_not_found");
+});
+
+test("payIncomingPaymentRequest blocks non-pending statuses without changing data", async () => {
+  for (const status of ["declined", "expired", "withdrawn", "paid"]) {
+    const tablesData = buildPayTables({
+      requests: [
+        {
+          id: `req_pay_${status}`,
+          sender_id: "friend_001",
+          recipient_id: "demo_user_001",
+          receiver_account_id: "friend_001_acct_eur",
+          amount: 50,
+          currency: "EUR",
+          note: "",
+          status,
+          hash: `h_${status}`,
+          shareable_link: `/r/h_${status}`,
+          created_at: "2026-05-05T13:00:00.000Z",
+          updated_at: "2026-05-05T13:00:00.000Z"
+        }
+      ]
+    });
+    const { supabase, tables } = createMultiTableSupabaseMock(tablesData);
+    const balanceBefore = tables.accounts.find((a) => a.id === "acct_eur_main").balance;
+    const result = await payIncomingPaymentRequest(
+      `req_pay_${status}`,
+      { confirm: true, sourceAccountId: "acct_eur_main" },
+      { supabase, now: payNow }
+    );
+    assert.equal(result.ok, false);
+    const expectedCode = status === "paid" ? "payment_already_completed" : "payment_not_allowed";
+    assert.equal(result.body.error.code, expectedCode);
+    assert.equal(tables.accounts.find((a) => a.id === "acct_eur_main").balance, balanceBefore);
+    assert.equal(tables.payment_transactions.length, 0);
+    assert.equal(tables.ledger_entries.length, 0);
+  }
+});
+
+test("payIncomingPaymentRequest promotes stale pending past expiry to expired and blocks", async () => {
+  const tablesData = buildPayTables({
+    requests: [
+      {
+        id: "req_pay_stale",
+        sender_id: "friend_001",
+        recipient_id: "demo_user_001",
+        receiver_account_id: "friend_001_acct_eur",
+        amount: 50,
+        currency: "EUR",
+        note: "",
+        status: "pending",
+        hash: "h_stale",
+        shareable_link: "/r/h_stale",
+        created_at: "2026-04-29T13:00:00.000Z",
+        updated_at: "2026-04-29T13:00:00.000Z"
+      }
+    ]
+  });
+  const { supabase, tables } = createMultiTableSupabaseMock(tablesData);
+  const result = await payIncomingPaymentRequest(
+    "req_pay_stale",
+    { confirm: true, sourceAccountId: "acct_eur_main" },
+    { supabase, now: payNow }
+  );
+  assert.equal(result.statusCode, 409);
+  assert.equal(result.body.error.code, "payment_not_allowed");
+  assert.equal(result.body.paymentRequest.status, "expired");
+  assert.equal(tables.payment_transactions.length, 0);
+});
+
+test("payIncomingPaymentRequest requires sourceAccountId when missing", async () => {
+  const { supabase } = createMultiTableSupabaseMock(buildPayTables());
+  const result = await payIncomingPaymentRequest(
+    "req_pay_pending",
+    { confirm: true },
+    { supabase, now: payNow }
+  );
+  assert.equal(result.statusCode, 400);
+  assert.equal(result.body.error.code, "source_account_required");
+});
+
+test("payIncomingPaymentRequest rejects accounts not owned by current user", async () => {
+  const tablesData = buildPayTables();
+  tablesData.accounts.push({
+    id: "acct_friend_eur",
+    owner_id: "friend_001",
+    display_name: "Friend EUR",
+    currency: "EUR",
+    balance: 1000,
+    account_code: "1000",
+    created_at: "2026-05-01T00:00:00.000Z",
+    updated_at: "2026-05-01T00:00:00.000Z"
+  });
+  const { supabase, tables } = createMultiTableSupabaseMock(tablesData);
+  const result = await payIncomingPaymentRequest(
+    "req_pay_pending",
+    { confirm: true, sourceAccountId: "acct_friend_eur" },
+    { supabase, now: payNow }
+  );
+  assert.equal(result.statusCode, 404);
+  assert.equal(result.body.error.code, "source_account_not_found");
+  assert.equal(tables.payment_transactions.length, 0);
+});
+
+test("payIncomingPaymentRequest rejects accounts with mismatched currency", async () => {
+  const { supabase, tables } = createMultiTableSupabaseMock(buildPayTables());
+  const result = await payIncomingPaymentRequest(
+    "req_pay_pending",
+    { confirm: true, sourceAccountId: "acct_usd_travel" },
+    { supabase, now: payNow }
+  );
+  assert.equal(result.statusCode, 409);
+  assert.equal(result.body.error.code, "source_account_currency_mismatch");
+  assert.equal(tables.accounts.find((a) => a.id === "acct_usd_travel").balance, 280);
+  assert.equal(tables.payment_transactions.length, 0);
+});
+
+test("payIncomingPaymentRequest rejects insufficient balance without mutating data", async () => {
+  const tablesData = buildPayTables();
+  tablesData.accounts[0].balance = 50;
+  const { supabase, tables } = createMultiTableSupabaseMock(tablesData);
+  const result = await payIncomingPaymentRequest(
+    "req_pay_pending",
+    { confirm: true, sourceAccountId: "acct_eur_main" },
+    { supabase, now: payNow }
+  );
+  assert.equal(result.statusCode, 409);
+  assert.equal(result.body.error.code, "source_account_insufficient_balance");
+  assert.equal(tables.accounts[0].balance, 50);
+  assert.equal(tables.payment_requests[0].status, "pending");
+  assert.equal(tables.payment_transactions.length, 0);
+  assert.equal(tables.ledger_entries.length, 0);
+});
+
+test("payIncomingPaymentRequest allows exact-balance payment ending at zero", async () => {
+  const tablesData = buildPayTables();
+  tablesData.accounts[0].balance = 88;
+  const { supabase, tables } = createMultiTableSupabaseMock(tablesData);
+  const result = await payIncomingPaymentRequest(
+    "req_pay_pending",
+    { confirm: true, sourceAccountId: "acct_eur_main" },
+    { supabase, now: payNow, generateId: payIdGenerator() }
+  );
+  assert.equal(result.ok, true);
+  assert.equal(result.body.sourceAccount.balance, 0);
+  assert.equal(tables.accounts[0].balance, 0);
+});
+
+test("payIncomingPaymentRequest is idempotent: duplicate succeeded txn blocks further deduction", async () => {
+  const tablesData = buildPayTables();
+  tablesData.payment_transactions.push({
+    id: "txn_existing",
+    payment_request_id: "req_pay_pending",
+    type: "payment",
+    amount: 88,
+    currency: "EUR",
+    status: "succeeded",
+    source_account_id: "acct_eur_main",
+    created_at: "2026-05-06T13:25:00.000Z"
+  });
+  const { supabase, tables } = createMultiTableSupabaseMock(tablesData);
+  const result = await payIncomingPaymentRequest(
+    "req_pay_pending",
+    { confirm: true, sourceAccountId: "acct_eur_main" },
+    { supabase, now: payNow }
+  );
+  assert.equal(result.statusCode, 409);
+  assert.equal(result.body.error.code, "payment_already_completed");
+  assert.equal(tables.accounts[0].balance, 412);
+  assert.equal(tables.payment_transactions.length, 1);
+});
+
+test("payIncomingPaymentRequest returns processing failure when ledger insert fails and rolls back", async () => {
+  const { supabase, tables } = createMultiTableSupabaseMock(buildPayTables(), {
+    failures: { ledger_entries: { insert: { message: "ledger boom" } } }
+  });
+  const result = await payIncomingPaymentRequest(
+    "req_pay_pending",
+    { confirm: true, sourceAccountId: "acct_eur_main" },
+    { supabase, now: payNow, generateId: payIdGenerator() }
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.statusCode, 500);
+  assert.equal(result.body.error.code, "payment_processing_failed");
+  assert.equal(tables.payment_requests[0].status, "pending");
+  assert.equal(tables.accounts[0].balance, 412);
+  assert.equal(tables.payment_transactions.length, 0);
+  assert.equal(tables.ledger_entries.length, 0);
+});
+
+test("findEligibleSourceAccounts filters by request currency for current-user accounts only", () => {
+  const eurReq = { currency: "EUR" };
+  const accounts = findEligibleSourceAccounts(eurReq, demoUser);
+  assert.deepEqual(accounts.map((a) => a.id), ["acct_eur_main"]);
+
+  const usdReq = { currency: "USD" };
+  assert.deepEqual(findEligibleSourceAccounts(usdReq, demoUser).map((a) => a.id), [
+    "acct_usd_travel"
+  ]);
+});
+
+test("defaultSelectedSourceAccountId selects the only eligible account, otherwise empty", () => {
+  assert.equal(defaultSelectedSourceAccountId({ currency: "EUR" }, demoUser), "acct_eur_main");
+  const altUser = {
+    ...demoUser,
+    receiverAccounts: [
+      ...demoUser.receiverAccounts,
+      { id: "acct_eur_extra", ownerId: demoUser.id, label: "Extra", displayName: "Extra", currency: "EUR", balance: 0, accountCode: "1099" }
+    ]
+  };
+  assert.equal(defaultSelectedSourceAccountId({ currency: "EUR" }, altUser), "");
+  assert.equal(defaultSelectedSourceAccountId({ currency: "JPY" }, demoUser), "");
+});
+
+test("describeSourceAccountState reports none/single/multiple states", () => {
+  assert.equal(describeSourceAccountState({ currency: "EUR" }, demoUser).state, "single");
+  assert.equal(describeSourceAccountState({ currency: "JPY" }, demoUser).state, "none");
+  const altUser = {
+    ...demoUser,
+    receiverAccounts: [
+      ...demoUser.receiverAccounts,
+      { id: "acct_eur_extra", ownerId: demoUser.id, label: "Extra", displayName: "Extra", currency: "EUR", balance: 0, accountCode: "1099" }
+    ]
+  };
+  assert.equal(describeSourceAccountState({ currency: "EUR" }, altUser).state, "multiple");
+});
+
+test("canPayIncoming permits only fresh pending incoming requests for current user", () => {
+  const fresh = {
+    senderId: "friend_001",
+    recipientId: demoUser.id,
+    status: "pending",
+    createdAt: "2026-05-06T13:00:00.000Z"
+  };
+  assert.equal(canPayIncoming(fresh, demoUser, payNow()), true);
+  assert.equal(canPayIncoming({ ...fresh, status: "declined" }, demoUser, payNow()), false);
+  assert.equal(canPayIncoming({ ...fresh, recipientId: "friend_001" }, demoUser, payNow()), false);
+  assert.equal(
+    canPayIncoming({ ...fresh, createdAt: "2026-04-29T13:00:00.000Z" }, demoUser, payNow()),
+    false
+  );
+});
+
+test("canConfirmPayment requires pending request, eligible account, sufficient balance", () => {
+  const request = { status: "pending", currency: "EUR", amount: 88 };
+  assert.equal(
+    canConfirmPayment({ request, selectedAccountId: "acct_eur_main", currentUser: demoUser }),
+    true
+  );
+  assert.equal(
+    canConfirmPayment({ request, selectedAccountId: "acct_usd_travel", currentUser: demoUser }),
+    false
+  );
+  assert.equal(
+    canConfirmPayment({ request, selectedAccountId: "", currentUser: demoUser }),
+    false
+  );
+  const lowBalUser = {
+    ...demoUser,
+    receiverAccounts: demoUser.receiverAccounts.map((a) =>
+      a.id === "acct_eur_main" ? { ...a, balance: 50 } : a
+    )
+  };
+  assert.equal(
+    canConfirmPayment({
+      request,
+      selectedAccountId: "acct_eur_main",
+      currentUser: lowBalUser
+    }),
+    false
+  );
+});
+
+test("formatStatusLabel covers paid status, PAYMENT_REQUEST_STATUS includes paid", () => {
+  assert.equal(formatStatusLabel("paid"), "paid");
+  assert.equal(PAYMENT_REQUEST_STATUS.paid, "paid");
 });
