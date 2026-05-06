@@ -650,7 +650,7 @@ function filteredIncomingItems() {
 }
 
 function renderDaysRemainingLabel(request) {
-  if (request.status !== "pending") return "expired";
+  if (request.status !== "pending") return "-";
   const days = request.daysRemaining ?? 0;
   if (days <= 0) return "expires today";
   if (days === 1) return "1 day left";
@@ -753,7 +753,9 @@ function renderIncomingRow(request) {
         ${
           declinable
             ? `<button type="button" class="secondary-action danger-action" data-decline="${escapeHtml(request.id)}" data-source="list">Decline</button>`
-            : `<p class="ineligible-message">${escapeHtml(ERROR_MESSAGES.unavailable_decline_action)}</p>`
+            : request.status === "pending"
+              ? `<p class="ineligible-message">${escapeHtml(ERROR_MESSAGES.unavailable_decline_action)}</p>`
+              : ""
         }
       </div>
     </li>
@@ -808,7 +810,9 @@ function renderIncomingDetailView() {
         ${
           declinable
             ? `<button type="button" class="primary-action danger-primary" data-decline="${escapeHtml(request.id)}" data-source="detail">Decline</button>`
-            : `<p class="ineligible-message">${escapeHtml(ERROR_MESSAGES.unavailable_decline_action)}</p>`
+            : request.status === "pending"
+              ? `<p class="ineligible-message">${escapeHtml(ERROR_MESSAGES.unavailable_decline_action)}</p>`
+              : ""
         }
       </div>
     </section>
