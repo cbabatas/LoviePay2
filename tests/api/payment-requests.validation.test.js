@@ -1226,6 +1226,17 @@ function buildPayTables(overrides = {}) {
       balance: 280,
       created_at: "2026-05-01T00:00:00.000Z",
       updated_at: "2026-05-01T00:00:00.000Z"
+    },
+    {
+      id: "friend_001_acct_eur",
+      owner_id: "friend_001",
+      display_name: "Everyday EUR",
+      account_number: "FI19 1010 0001 0001 11",
+      account_type: "current_account",
+      currency: "EUR",
+      balance: 1000,
+      created_at: "2026-05-01T00:00:00.000Z",
+      updated_at: "2026-05-01T00:00:00.000Z"
     }
   ];
 
@@ -1267,15 +1278,39 @@ test("payIncomingPaymentRequest pays a pending request, marks it paid, deducts b
   assert.equal(tables.payment_transactions[0].amount, 88);
   assert.equal(tables.payment_transactions[0].source_account_id, "acct_eur_main");
 
-  assert.equal(tables.ledger_entries.length, 2);
+  assert.equal(tables.ledger_entries.length, 4);
   const debits = tables.ledger_entries.filter((e) => e.entry_type === "debit");
   const credits = tables.ledger_entries.filter((e) => e.entry_type === "credit");
-  assert.equal(debits.length, 1);
-  assert.equal(credits.length, 1);
+  assert.equal(debits.length, 2);
+  assert.equal(credits.length, 2);
   const debitTotal = debits.reduce((sum, e) => sum + Number(e.amount), 0);
   const creditTotal = credits.reduce((sum, e) => sum + Number(e.amount), 0);
   assert.equal(debitTotal, creditTotal);
-  assert.equal(debitTotal, 88);
+  assert.equal(debitTotal, 88 * 2);
+
+  const payerDebit = tables.ledger_entries.find(
+    (e) => e.entry_type === "debit" && e.account_id === "acct_eur_main"
+  );
+  const offsetCredit = tables.ledger_entries.find(
+    (e) => e.entry_type === "credit" && e.account_id === "internal_payment_clearing"
+  );
+  const offsetDebit = tables.ledger_entries.find(
+    (e) => e.entry_type === "debit" && e.account_id === "internal_payment_clearing"
+  );
+  const receiverCredit = tables.ledger_entries.find(
+    (e) => e.entry_type === "credit" && e.account_id === "friend_001_acct_eur"
+  );
+
+  assert.ok(payerDebit && offsetCredit && offsetDebit && receiverCredit);
+  assert.equal(payerDebit.account_code, "10001");
+  assert.equal(offsetCredit.account_code, "10000");
+  assert.equal(offsetDebit.account_code, "10000");
+  assert.equal(receiverCredit.account_code, "10002");
+
+  assert.equal(
+    tables.accounts.find((a) => a.id === "friend_001_acct_eur").balance,
+    1088
+  );
 });
 
 test("payIncomingPaymentRequest requires confirm=true", async () => {
@@ -1503,7 +1538,7 @@ test("payIncomingPaymentRequest treats ledger persistence as best-effort and sti
   assert.equal(tables.payment_requests[0].status, "paid");
   assert.equal(tables.accounts[0].balance, 324);
   assert.ok(Array.isArray(result.body.ledgerEntries));
-  assert.equal(result.body.ledgerEntries.length, 2);
+  assert.equal(result.body.ledgerEntries.length, 4);
   assert.equal(tables.ledger_entries.length, 0);
 });
 

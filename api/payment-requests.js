@@ -7,7 +7,7 @@ import {
   computeExpiresAt,
   computeDaysRemaining
 } from "../src/payment-request.js";
-import { demoUser, friends, accountingAccounts } from "../src/mock-data.js";
+import { demoUser, friends } from "../src/mock-data.js";
 
 const ALL_USERS = [demoUser, ...friends];
 const ACCOUNTS_TABLE = "accounts";
@@ -358,14 +358,15 @@ export async function declineIncomingPaymentRequest(id, payload, options = {}) {
   };
 }
 
-const ACCOUNT_TYPE_LEDGER_CODE = {
-  current_account: "1000",
-  term_deposit: "1100"
+const ACCOUNT_TYPE_LEDGER_CODES = {
+  current_account: { debit: "10001", credit: "10002" },
+  term_deposit:    { debit: "10003", credit: "10004" }
 };
 
-function ledgerCodeForAccount(account) {
-  const type = account?.account_type ?? account?.accountType;
-  return ACCOUNT_TYPE_LEDGER_CODE[type] ?? "1000";
+function ledgerCodeForAccount(account, side) {
+  const type = account?.account_type ?? account?.accountType ?? "current_account";
+  const codes = ACCOUNT_TYPE_LEDGER_CODES[type] ?? ACCOUNT_TYPE_LEDGER_CODES.current_account;
+  return codes[side];
 }
 
 function toClientSourceAccount(row) {
@@ -687,37 +688,105 @@ export async function payIncomingPaymentRequest(id, payload, options = {}) {
   }
 
   const txnId = transactionRow.id ?? transactionPayload.id;
-  const offsetAccount = accountingAccounts?.paymentRequestsExpense ?? {
-    id: "expense_payment_requests",
-    accountCode: "5000"
-  };
 
-  const debitEntry = {
-    id: generateId(),
-    transaction_id: txnId,
-    account_id: offsetAccount.id,
-    entry_type: "debit",
-    amount: requestAmount,
-    currency: promoted.currency,
-    account_code: offsetAccount.accountCode,
-    created_at: updatedAt
-  };
+  const receiverAccountId = promoted.receiver_account_id;
+  let receiverAccount = null;
+  let usingPersistedReceiver = false;
+  const persistedReceiver = await fetchSourceAccount(supabase, receiverAccountId);
+  if (persistedReceiver.data) {
+    receiverAccount = persistedReceiver.data;
+    usingPersistedReceiver = true;
+  } else {
+    const recipientOfPayment = ALL_USERS.find((u) =>
+      (u.receiverAccounts ?? []).some((a) => a.id === receiverAccountId)
+    );
+    if (recipientOfPayment) {
+      receiverAccount = findDemoSourceAccount(recipientOfPayment, receiverAccountId);
+    }
+  }
 
-  const creditEntry = {
+  if (!receiverAccount) {
+    return requestErrorResult("receiver_account_not_found", 500, {
+      debug: { step: "fetch_receiver_account", receiverAccountId }
+    });
+  }
+
+  const receiverNewBalance = Number(receiverAccount.balance) + requestAmount;
+  if (usingPersistedReceiver) {
+    await safeUpdateAccountBalance(
+      supabase,
+      receiverAccount.id,
+      receiverAccount.owner_id,
+      receiverNewBalance,
+      updatedAt
+    );
+  } else {
+    const recipientOfPayment = ALL_USERS.find((u) => u.id === receiverAccount.owner_id);
+    if (recipientOfPayment?.receiverAccounts) {
+      recipientOfPayment.receiverAccounts = recipientOfPayment.receiverAccounts.map((a) =>
+        a.id === receiverAccount.id ? { ...a, balance: receiverNewBalance } : a
+      );
+    }
+  }
+
+  const offsetAccountId = "internal_payment_clearing";
+  const offsetAccountCode = "10000";
+
+  const payerDebitEntry = {
     id: generateId(),
     transaction_id: txnId,
     account_id: account.id,
-    entry_type: "credit",
+    entry_type: "debit",
     amount: requestAmount,
     currency: promoted.currency,
-    account_code: ledgerCodeForAccount(account),
+    account_code: ledgerCodeForAccount(account, "debit"),
     created_at: updatedAt
   };
 
-  const ledgerInsert = await safeInsertLedgerEntries(supabase, [debitEntry, creditEntry]);
+  const offsetCreditEntry = {
+    id: generateId(),
+    transaction_id: txnId,
+    account_id: offsetAccountId,
+    entry_type: "credit",
+    amount: requestAmount,
+    currency: promoted.currency,
+    account_code: offsetAccountCode,
+    created_at: updatedAt
+  };
+
+  const offsetDebitEntry = {
+    id: generateId(),
+    transaction_id: txnId,
+    account_id: offsetAccountId,
+    entry_type: "debit",
+    amount: requestAmount,
+    currency: promoted.currency,
+    account_code: offsetAccountCode,
+    created_at: updatedAt
+  };
+
+  const receiverCreditEntry = {
+    id: generateId(),
+    transaction_id: txnId,
+    account_id: receiverAccount.id,
+    entry_type: "credit",
+    amount: requestAmount,
+    currency: promoted.currency,
+    account_code: ledgerCodeForAccount(receiverAccount, "credit"),
+    created_at: updatedAt
+  };
+
+  const ledgerEntriesToInsert = [
+    payerDebitEntry,
+    offsetCreditEntry,
+    offsetDebitEntry,
+    receiverCreditEntry
+  ];
+
+  const ledgerInsert = await safeInsertLedgerEntries(supabase, ledgerEntriesToInsert);
   const ledgerRows = Array.isArray(ledgerInsert.data) && ledgerInsert.data.length > 0
     ? ledgerInsert.data
-    : [debitEntry, creditEntry];
+    : ledgerEntriesToInsert;
 
   return {
     ok: true,

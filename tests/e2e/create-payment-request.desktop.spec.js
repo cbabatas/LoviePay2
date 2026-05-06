@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 const demoEmail = "ayla.demo@loviepay.test";
-const demoPassword = "demo-pass-001";
+const demoPassword = "1234";
 
 async function signIn(page) {
   await page.goto("/");
@@ -9,6 +9,8 @@ async function signIn(page) {
   await page.getByLabel("Password").fill(demoPassword);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("heading", { name: "Payment request" })).toBeVisible();
+  await page.getByRole("button", { name: "Create request" }).click();
+  await expect(page.getByLabel("Recipient")).toBeVisible();
 }
 
 async function selectRecipient(page, query, name) {
@@ -74,8 +76,8 @@ test.describe("create payment request desktop flow", () => {
     await expect(page.locator("#success-state")).not.toContainText("Hash:");
 
     await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
-    await page.getByRole("button", { name: "Copy" }).click();
-    await expect(page.locator("#copy-status")).toHaveText("Copied");
+    await page.getByRole("button", { name: "Copy link" }).click();
+    await expect(page.getByRole("button", { name: "Copied" })).toBeVisible();
     await expect(page.evaluate(() => navigator.clipboard.readText())).resolves.toContain(
       "/r/hash_desktop_happy_path"
     );
@@ -181,7 +183,7 @@ test.describe("create payment request desktop flow", () => {
     await expect(page.getByLabel("Note")).toHaveValue("x".repeat(100));
     await expect(page.locator("#note-count")).toHaveText("100/100");
 
-    await page.getByRole("link", { name: "Payment request" }).click();
+    await page.getByRole("button", { name: "Create request" }).click();
     await expect(page.getByRole("heading", { name: "Payment request" })).toBeVisible();
     await expect(page.locator("#selected-recipient")).toHaveCount(0);
     await expect(page.getByLabel("Amount")).toHaveValue("");
@@ -190,6 +192,7 @@ test.describe("create payment request desktop flow", () => {
     await page.getByLabel("Amount").fill("55");
     await page.reload();
     await expect(page.getByRole("heading", { name: "Payment request" })).toBeVisible();
+    await page.getByRole("button", { name: "Create request" }).click();
     await expect(page.locator("#selected-recipient")).toHaveCount(0);
     await expect(page.getByLabel("Amount")).toHaveValue("");
   });

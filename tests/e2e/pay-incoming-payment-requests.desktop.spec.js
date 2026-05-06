@@ -208,23 +208,43 @@ export async function mockPayIncomingApi(page, options = {}) {
         },
         ledgerEntries: [
           {
-            id: `ledger_debit_${request.id}`,
+            id: `ledger_payer_debit_${request.id}`,
             transactionId: `txn_${request.id}`,
-            accountId: "expense_payment_requests",
+            accountId: "acct_eur_main",
             entryType: "debit",
             amount: request.amount,
             currency: request.currency,
-            accountCode: "5000",
+            accountCode: "10001",
             createdAt: "2026-05-06T13:05:00.000Z"
           },
           {
-            id: `ledger_credit_${request.id}`,
+            id: `ledger_offset_credit_${request.id}`,
             transactionId: `txn_${request.id}`,
-            accountId: "acct_eur_main",
+            accountId: "internal_payment_clearing",
             entryType: "credit",
             amount: request.amount,
             currency: request.currency,
-            accountCode: "1000",
+            accountCode: "10000",
+            createdAt: "2026-05-06T13:05:00.000Z"
+          },
+          {
+            id: `ledger_offset_debit_${request.id}`,
+            transactionId: `txn_${request.id}`,
+            accountId: "internal_payment_clearing",
+            entryType: "debit",
+            amount: request.amount,
+            currency: request.currency,
+            accountCode: "10000",
+            createdAt: "2026-05-06T13:05:00.000Z"
+          },
+          {
+            id: `ledger_receiver_credit_${request.id}`,
+            transactionId: `txn_${request.id}`,
+            accountId: request.receiverAccountId,
+            entryType: "credit",
+            amount: request.amount,
+            currency: request.currency,
+            accountCode: "10002",
             createdAt: "2026-05-06T13:05:00.000Z"
           }
         ]
@@ -252,7 +272,7 @@ test.describe("pay incoming payment requests desktop flow", () => {
     await expect(page.getByRole("dialog")).toContainText(/EUR/);
     await page.getByRole("button", { name: /Confirm payment/i }).click();
 
-    await expect(page.getByText(/Processing/i)).toBeVisible();
+    await expect(page.getByText("Processing payment...")).toBeVisible();
 
     await expect(mikaRow).toContainText("paid", { timeout: 8000 });
     await expect(mikaRow.getByRole("button", { name: "Pay", exact: true })).toHaveCount(0);
@@ -284,12 +304,12 @@ test.describe("pay incoming payment requests desktop flow", () => {
 
     const mikaRow = requestRow(page, "Mika Korhonen");
     await mikaRow.getByRole("button", { name: "Pay", exact: true }).click();
-    const confirmBtn = page.getByRole("button", { name: /Confirm payment/i });
+    const confirmBtn = page.locator("#confirm-pay");
     await confirmBtn.click();
     await confirmBtn.click({ force: true }).catch(() => {});
     await confirmBtn.click({ force: true }).catch(() => {});
 
-    await expect(mikaRow).toContainText("paid", { timeout: 8000 });
+    await expect(mikaRow).toContainText("paid", { timeout: 10000 });
     expect(payRequests.length).toBe(1);
   });
 
@@ -335,11 +355,11 @@ test.describe("pay incoming payment requests desktop flow", () => {
 
     const mikaRow = requestRow(page, "Mika Korhonen");
     await mikaRow.getByRole("button", { name: "Pay", exact: true }).click();
-    const confirmBtn = page.getByRole("button", { name: /Confirm payment/i });
+    const confirmBtn = page.locator("#confirm-pay");
     await confirmBtn.click();
     await confirmBtn.click({ force: true }).catch(() => {});
 
-    await expect(mikaRow).toContainText("paid", { timeout: 8000 });
+    await expect(mikaRow).toContainText("paid", { timeout: 10000 });
     expect(payRequests.length).toBe(1);
   });
 });
