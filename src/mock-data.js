@@ -154,7 +154,7 @@ export const friends = [
 
 export const paymentRequests = [
   {
-    id: "req_outgoing_001",
+    id: "e039ca67-aa00-4bb6-a69f-86051c725ea4",
     senderId: demoUser.id,
     recipientId: "friend_001",
     receiverAccountId: "acct_eur_main",
@@ -168,7 +168,7 @@ export const paymentRequests = [
     updatedAt: "2026-05-06T12:00:00.000Z"
   },
   {
-    id: "req_outgoing_002",
+    id: "4ef20f5a-830b-4867-a0ec-d3ea6b6ea4e6",
     senderId: demoUser.id,
     recipientId: "friend_002",
     receiverAccountId: "acct_usd_travel",
@@ -182,7 +182,7 @@ export const paymentRequests = [
     updatedAt: "2026-05-05T10:00:00.000Z"
   },
   {
-    id: "req_outgoing_003",
+    id: "35eda6a1-6831-4467-8488-6f2fd8976251",
     senderId: demoUser.id,
     recipientId: "friend_003",
     receiverAccountId: "acct_gbp_family",
@@ -196,10 +196,10 @@ export const paymentRequests = [
     updatedAt: "2026-05-04T16:15:00.000Z"
   },
   {
-    id: "req_incoming_001",
+    id: "33b2d1b5-cc13-4e06-af1d-f4b2c52e79e1",
     senderId: "friend_001",
     recipientId: demoUser.id,
-    receiverAccountId: "acct_eur_main",
+    receiverAccountId: "friend_001_acct_eur",
     amount: 88,
     currency: "EUR",
     note: "Concert ticket",
@@ -210,10 +210,10 @@ export const paymentRequests = [
     updatedAt: "2026-05-06T13:00:00.000Z"
   },
   {
-    id: "req_incoming_002",
+    id: "a5099a43-d5d1-494a-b4cf-533c16eaf721",
     senderId: "friend_005",
     recipientId: demoUser.id,
-    receiverAccountId: "acct_usd_travel",
+    receiverAccountId: "friend_005_acct_usd",
     amount: 32.4,
     currency: "USD",
     note: "Birthday gift split",
@@ -224,28 +224,28 @@ export const paymentRequests = [
     updatedAt: "2026-05-03T11:30:00.000Z"
   },
   {
-    id: "req_incoming_003",
+    id: "8ee581ea-8fb8-46bb-b4f8-8bbf488007b6",
     senderId: "friend_006",
     recipientId: demoUser.id,
-    receiverAccountId: "acct_gbp_family",
+    receiverAccountId: "friend_006_acct_gbp",
     amount: 56,
     currency: "GBP",
     note: "Boundary case (exactly 7 days)",
-    status: "pending",
+    status: "expired",
     hash: "hash_incoming_003",
     shareableLink: "/r/hash_incoming_003",
     createdAt: "2026-04-29T13:00:00.000Z",
     updatedAt: "2026-04-29T13:00:00.000Z"
   },
   {
-    id: "req_incoming_004",
+    id: "d9ba4e1b-ecd4-4fe8-a13d-f8d7c69d1fe6",
     senderId: "friend_007",
     recipientId: demoUser.id,
-    receiverAccountId: "acct_eur_main",
+    receiverAccountId: "friend_007_acct_eur",
     amount: 145.75,
     currency: "EUR",
     note: "Old shared dinner",
-    status: "pending",
+    status: "expired",
     hash: "hash_incoming_004",
     shareableLink: "/r/hash_incoming_004",
     createdAt: "2026-04-15T10:00:00.000Z",
