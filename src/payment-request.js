@@ -70,13 +70,18 @@ export function parseAmount(value) {
   return { ok: true, amount };
 }
 
-export function findActiveRecipient(recipientId, friendList = friends, currentUser = demoUser) {
+export function findActiveRecipient(recipientId, friendList = ALL_USERS, currentUser = demoUser) {
   if (!recipientId) return { ok: false, code: "recipient_required" };
 
   const recipient = friendList.find((friend) => friend.id === recipientId);
   if (!recipient) return { ok: false, code: "recipient_not_found" };
   if (recipient.id === currentUser.id) return { ok: false, code: "self_recipient_not_allowed" };
   if (!recipient.active) return { ok: false, code: "recipient_inactive" };
+
+  const allowedIds = currentUser?.friends;
+  if (Array.isArray(allowedIds) && !allowedIds.includes(recipient.id)) {
+    return { ok: false, code: "recipient_not_found" };
+  }
 
   return { ok: true, recipient };
 }
@@ -98,12 +103,17 @@ export function deriveCurrency(receiverAccountId, currentUser = demoUser) {
   return result.ok ? result.account.currency : "";
 }
 
-export function searchFriends(query, friendList = friends, currentUser = demoUser) {
+export function searchFriends(query, friendList = ALL_USERS, currentUser = demoUser) {
   const normalized = normalizeSearch(query);
   if (!normalized) return [];
 
+  const allowedIds = Array.isArray(currentUser?.friends)
+    ? new Set(currentUser.friends)
+    : null;
+
   return friendList.filter((friend) => {
     if (!friend.active || friend.id === currentUser.id) return false;
+    if (allowedIds && !allowedIds.has(friend.id)) return false;
 
     const searchable = [friend.fullName, friend.email, friend.phone]
       .map(normalizeSearch)
@@ -114,7 +124,7 @@ export function searchFriends(query, friendList = friends, currentUser = demoUse
 
 export function validatePaymentRequestForm(payload, options = {}) {
   const currentUser = options.currentUser ?? demoUser;
-  const friendList = options.friendList ?? friends;
+  const friendList = options.friendList ?? ALL_USERS;
   const errors = {};
 
   const amountResult = parseAmount(payload.amount);

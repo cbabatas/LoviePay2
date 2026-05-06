@@ -504,8 +504,13 @@ function searchFriendsForCreate(query) {
   const normalized = String(query ?? "").trim().toLowerCase();
   if (!normalized) return [];
 
-  return friends.filter((friend) => {
+  const allowedIds = Array.isArray(state.currentUser?.friends)
+    ? new Set(state.currentUser.friends)
+    : null;
+
+  return ALL_USERS.filter((friend) => {
     if (!friend.active || friend.id === state.currentUser.id) return false;
+    if (allowedIds && !allowedIds.has(friend.id)) return false;
     return [friend.fullName, friend.email, friend.phone]
       .map((value) => String(value ?? "").toLowerCase())
       .join(" ")

@@ -5,6 +5,8 @@ import {
   parseAmount
 } from "../src/payment-request.js";
 
+const ALL_USERS = [demoUser, ...friends];
+
 export const SERVER_DERIVED_FIELDS = new Set([
   "senderId",
   "sender_id",
@@ -23,7 +25,7 @@ export function createValidationError(code) {
 
 export function validateCreatePaymentRequestPayload(payload, options = {}) {
   const currentUser = options.currentUser ?? demoUser;
-  const friendList = options.friendList ?? friends;
+  const friendList = options.friendList ?? ALL_USERS;
 
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     return { ok: false, error: createValidationError("invalid_amount") };
