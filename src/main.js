@@ -91,6 +91,7 @@ const SESSION_USER_KEY = "loviepay.demoUserId";
 const NOTE_LIMIT = 100;
 
 const ROUTES = {
+  login: "/log-in",
   outgoingList: "/outgoing-list",
   incomingList: "/incoming-list",
   create: "/create-payment-request"
@@ -122,6 +123,7 @@ function syncUrlToState({ replace = false } = {}) {
 
 function parseRoute(pathname) {
   const path = pathname.replace(/\/+$/, "") || "/";
+  if (path === ROUTES.login) return { view: "login" };
   if (path === "/" || path === ROUTES.outgoingList) return { view: "outgoing" };
   if (path === ROUTES.incomingList) return { view: "incoming" };
   if (path === ROUTES.create) return { view: "create" };
@@ -320,7 +322,7 @@ function renderSignIn() {
       <section class="auth-panel" aria-labelledby="signin-title">
         <div class="brand-mark" aria-hidden="true">LP</div>
         <h1 id="signin-title">LoviePay</h1>
-        <p class="muted">Sign in with the demo account to create a payment request.</p>
+        <p class="muted">Log in with the demo account to create a payment request.</p>
         <form id="signin-form" class="form-stack" novalidate>
           <label>
             <span>Email</span>
@@ -335,7 +337,7 @@ function renderSignIn() {
               ? `<p class="banner banner-error" role="alert">${escapeHtml(state.signInError)}</p>`
               : ""
           }
-          <button class="primary-action" type="submit">Sign in</button>
+          <button class="primary-action" type="submit">Log in</button>
         </form>
       </section>
     </main>
@@ -1166,7 +1168,7 @@ function bindWorkspace() {
     setCurrentUserId(null);
     resetRequestState();
     resetListsState();
-    window.history.replaceState({}, "", "/");
+    window.history.replaceState({}, "", ROUTES.login);
     render();
   });
 
@@ -1838,6 +1840,9 @@ async function confirmDecline() {
 
 function applyRouteFromLocation({ replaceUrl = true } = {}) {
   if (!state.signedIn || !state.currentUser) {
+    if (window.location.pathname !== ROUTES.login) {
+      window.history.replaceState({}, "", ROUTES.login);
+    }
     render();
     return;
   }

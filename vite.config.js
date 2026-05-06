@@ -43,8 +43,7 @@ function sendJsonError(res, error) {
     JSON.stringify({
       error: {
         code: "request_creation_failed",
-        message: error?.message || "The request could not be completed. Try again.",
-        stack: error?.stack
+        message: error?.message || "The request could not be completed. Try again."
       }
     })
   );

@@ -1,11 +1,12 @@
-import { createSupabaseServerClient } from "./supabase-client.js";
+import { createSupabaseServerClient, includeDebugDetails, isProduction } from "./supabase-client.js";
 import { ERROR_MESSAGES } from "../src/payment-request.js";
 import { demoUser, friends } from "../src/mock-data.js";
 
 const ACCOUNTS_TABLE = "accounts";
 const ALL_USERS = [demoUser, ...friends];
 
-function resolveCurrentUser(req) {
+export function resolveCurrentUser(req) {
+  if (isProduction()) return null;
   const userId = req.headers["x-demo-user-id"];
   return ALL_USERS.find((u) => u.id === userId) ?? demoUser;
 }
@@ -36,24 +37,23 @@ export async function listCustomerAccounts({ currentUser, supabase } = {}) {
     .eq("owner_id", currentUser.id);
 
   if (error) {
-    return {
-      ok: false,
-      statusCode: 500,
-      body: {
-        error: {
-          code: "customer_accounts_failed",
-          message:
-            ERROR_MESSAGES.customer_accounts_failed ??
-            "Could not load your accounts. Try again."
-        },
-        debug: {
-          message: error.message ?? null,
-          details: error.details ?? null,
-          hint: error.hint ?? null,
-          code: error.code ?? null
-        }
+    const body = {
+      error: {
+        code: "customer_accounts_failed",
+        message:
+          ERROR_MESSAGES.customer_accounts_failed ??
+          "Could not load your accounts. Try again."
       }
     };
+    if (includeDebugDetails()) {
+      body.debug = {
+        message: error.message ?? null,
+        details: error.details ?? null,
+        hint: error.hint ?? null,
+        code: error.code ?? null
+      };
+    }
+    return { ok: false, statusCode: 500, body };
   }
 
   return {
@@ -75,17 +75,26 @@ export default async function handler(req, res) {
   }
 
   const currentUser = resolveCurrentUser(req);
+  if (!currentUser) {
+    jsonResponse(res, 401, {
+      error: { code: "unauthorized", message: "Authentication required." }
+    });
+    return;
+  }
   let result;
   try {
     result = await listCustomerAccounts({ currentUser });
   } catch (error) {
-    jsonResponse(res, 500, {
+    const body = {
       error: {
         code: "customer_accounts_failed",
         message: "Could not load your accounts. Try again."
-      },
-      debug: { message: error?.message ?? null }
-    });
+      }
+    };
+    if (includeDebugDetails()) {
+      body.debug = { message: error?.message ?? null };
+    }
+    jsonResponse(res, 500, body);
     return;
   }
 

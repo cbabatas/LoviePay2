@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { createSupabaseServerClient } from "./supabase-client.js";
+import { createSupabaseServerClient, includeDebugDetails, isProduction } from "./supabase-client.js";
 import { validateCreatePaymentRequestPayload } from "./payment-request-validation.js";
 import {
   ERROR_MESSAGES,
@@ -14,7 +14,12 @@ const ACCOUNTS_TABLE = "accounts";
 const PAYMENT_TRANSACTIONS_TABLE = "payment_transactions";
 const LEDGER_ENTRIES_TABLE = "ledger_entries";
 
-function resolveCurrentUser(req) {
+function debugDetails(extras) {
+  return includeDebugDetails() ? extras : undefined;
+}
+
+export function resolveCurrentUser(req) {
+  if (isProduction()) return null;
   const userId = req.headers["x-demo-user-id"];
   return ALL_USERS.find((u) => u.id === userId) ?? demoUser;
 }
@@ -422,32 +427,26 @@ async function fetchSourceAccount(supabase, accountId) {
   }
 }
 
-function findDemoSourceAccount(currentUser, accountId) {
-  if (!accountId) return null;
-  const account = (currentUser?.receiverAccounts ?? []).find((a) => a.id === accountId);
-  if (!account) return null;
-  return {
-    id: account.id,
-    owner_id: account.ownerId ?? currentUser?.id,
-    display_name: account.displayName ?? account.label ?? "",
-    account_number: account.accountNumber ?? "",
-    account_type: account.accountType ?? "current_account",
-    currency: account.currency,
-    balance: Number(account.balance ?? 0),
-    updated_at: new Date().toISOString()
-  };
-}
-
-async function safeUpdateAccountBalance(supabase, accountId, ownerId, balance, updatedAt) {
+async function safeUpdateAccountBalance(
+  supabase,
+  accountId,
+  ownerId,
+  newBalance,
+  expectedBalance,
+  updatedAt
+) {
   try {
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from(ACCOUNTS_TABLE)
-      .update({ balance, updated_at: updatedAt })
+      .update({ balance: newBalance, updated_at: updatedAt })
       .eq("id", accountId)
       .eq("owner_id", ownerId)
+      .eq("balance", expectedBalance)
       .select()
       .maybeSingle();
-    return { error };
+    if (error) return { error };
+    if (!data) return { error: { code: "balance_conflict", message: "Account balance changed concurrently." } };
+    return { error: null, data };
   } catch (error) {
     return { error };
   }
@@ -475,6 +474,44 @@ async function safeInsertLedgerEntries(supabase, entries) {
     return { data, error };
   } catch (error) {
     return { data: null, error };
+  }
+}
+
+async function rollbackRequestToPending(supabase, id, paidRow, paidUpdatedAt) {
+  try {
+    await supabase
+      .from(PAYMENT_REQUESTS_TABLE)
+      .update({ status: "pending", updated_at: paidRow?.updated_at ?? paidUpdatedAt })
+      .eq("id", id)
+      .eq("status", "paid")
+      .eq("updated_at", paidUpdatedAt)
+      .select()
+      .maybeSingle();
+  } catch {
+    // best-effort
+  }
+}
+
+async function rollbackPayerBalance(supabase, accountId, ownerId, originalBalance, currentBalance, updatedAt) {
+  try {
+    await supabase
+      .from(ACCOUNTS_TABLE)
+      .update({ balance: originalBalance, updated_at: updatedAt })
+      .eq("id", accountId)
+      .eq("owner_id", ownerId)
+      .eq("balance", currentBalance)
+      .select()
+      .maybeSingle();
+  } catch {
+    // best-effort
+  }
+}
+
+async function deletePaymentTransaction(supabase, transactionId) {
+  try {
+    await supabase.from(PAYMENT_TRANSACTIONS_TABLE).delete().eq("id", transactionId);
+  } catch {
+    // best-effort
   }
 }
 
@@ -521,23 +558,17 @@ export async function payIncomingPaymentRequest(id, payload, options = {}) {
 
   if (existing.error) {
     return requestErrorResult("incoming_detail_failed", 500, {
-      debug: {
+      debug: debugDetails({
         step: "fetch_payment_request",
         message: existing.error?.message ?? null,
         code: existing.error?.code ?? null,
         details: existing.error?.details ?? null,
         hint: existing.error?.hint ?? null
-      }
+      })
     });
   }
   if (!existing.data) {
-    return requestErrorResult("request_not_found", 404, {
-      debug: {
-        step: "fetch_payment_request",
-        id,
-        recipientId: currentUser?.id
-      }
-    });
+    return requestErrorResult("request_not_found", 404);
   }
 
   const promoted = await promoteExpiredOnRead(supabase, existing.data, now);
@@ -572,12 +603,12 @@ export async function payIncomingPaymentRequest(id, payload, options = {}) {
   if (!account) {
     return requestErrorResult("source_account_not_found", 404, {
       paymentRequest: shapeWithDerivedFields(promoted, now),
-      debug: {
+      debug: debugDetails({
         step: "fetch_source_account",
         sourceAccountId,
         currentUserId: currentUser?.id,
         supabaseError: persistedAccount.error?.message ?? null
-      }
+      })
     });
   }
 
@@ -617,14 +648,14 @@ export async function payIncomingPaymentRequest(id, payload, options = {}) {
 
   if (requestUpdate.error || !requestUpdate.data) {
     return requestErrorResult("payment_processing_failed", 500, {
-      debug: {
+      debug: debugDetails({
         step: "update_payment_request",
         message: requestUpdate.error?.message ?? null,
         details: requestUpdate.error?.details ?? null,
         hint: requestUpdate.error?.hint ?? null,
         code: requestUpdate.error?.code ?? null,
         rowReturned: Boolean(requestUpdate.data)
-      }
+      })
     });
   }
 
@@ -640,16 +671,17 @@ export async function payIncomingPaymentRequest(id, payload, options = {}) {
     account.id,
     currentUser.id,
     newBalance,
+    balance,
     updatedAt
   );
   if (accountUpdate.error) {
-    await supabase
-      .from(PAYMENT_REQUESTS_TABLE)
-      .update({ status: "pending", updated_at: existing.data.updated_at ?? updatedAt })
-      .eq("id", id)
-      .select()
-      .maybeSingle();
-    return requestErrorResult("payment_processing_failed", 500);
+    await rollbackRequestToPending(supabase, id, requestUpdate.data, updatedAt);
+    return requestErrorResult("payment_processing_failed", 500, {
+      debug: debugDetails({
+        step: "update_payer_balance",
+        message: accountUpdate.error?.message ?? null
+      })
+    });
   }
 
   const transactionPayload = {
@@ -662,6 +694,21 @@ export async function payIncomingPaymentRequest(id, payload, options = {}) {
     source_account_id: account.id,
     created_at: updatedAt
   };
+
+  const receiverAccountId = promoted.receiver_account_id;
+  const persistedReceiver = await fetchSourceAccount(supabase, receiverAccountId);
+  const receiverAccount =
+    persistedReceiver.data && persistedReceiver.data.owner_id === promoted.sender_id
+      ? persistedReceiver.data
+      : null;
+
+  if (!receiverAccount) {
+    await rollbackPayerBalance(supabase, account.id, currentUser.id, balance, newBalance, updatedAt);
+    await rollbackRequestToPending(supabase, id, requestUpdate.data, updatedAt);
+    return requestErrorResult("receiver_account_not_found", 500, {
+      debug: debugDetails({ step: "fetch_receiver_account", receiverAccountId })
+    });
+  }
 
   const transactionInsert = await safeInsertTransaction(supabase, transactionPayload);
   let transactionRow = transactionInsert.data ?? transactionPayload;
@@ -676,46 +723,40 @@ export async function payIncomingPaymentRequest(id, payload, options = {}) {
     }
   }
 
-  const txnId = transactionRow.id ?? transactionPayload.id;
-
-  const receiverAccountId = promoted.receiver_account_id;
-  let receiverAccount = null;
-  let usingPersistedReceiver = false;
-  const persistedReceiver = await fetchSourceAccount(supabase, receiverAccountId);
-  if (persistedReceiver.data) {
-    receiverAccount = persistedReceiver.data;
-    usingPersistedReceiver = true;
-  } else {
-    const recipientOfPayment = ALL_USERS.find((u) =>
-      (u.receiverAccounts ?? []).some((a) => a.id === receiverAccountId)
-    );
-    if (recipientOfPayment) {
-      receiverAccount = findDemoSourceAccount(recipientOfPayment, receiverAccountId);
-    }
-  }
-
-  if (!receiverAccount) {
-    return requestErrorResult("receiver_account_not_found", 500, {
-      debug: { step: "fetch_receiver_account", receiverAccountId }
+  if (transactionInsert.error) {
+    await rollbackPayerBalance(supabase, account.id, currentUser.id, balance, newBalance, updatedAt);
+    await rollbackRequestToPending(supabase, id, requestUpdate.data, updatedAt);
+    return requestErrorResult("payment_processing_failed", 500, {
+      debug: debugDetails({
+        step: "insert_payment_transaction",
+        message: transactionInsert.error?.message ?? null,
+        code: transactionInsert.error?.code ?? null
+      })
     });
   }
 
-  const receiverNewBalance = Number(receiverAccount.balance) + requestAmount;
-  if (usingPersistedReceiver) {
-    await safeUpdateAccountBalance(
-      supabase,
-      receiverAccount.id,
-      receiverAccount.owner_id,
-      receiverNewBalance,
-      updatedAt
-    );
-  } else {
-    const recipientOfPayment = ALL_USERS.find((u) => u.id === receiverAccount.owner_id);
-    if (recipientOfPayment?.receiverAccounts) {
-      recipientOfPayment.receiverAccounts = recipientOfPayment.receiverAccounts.map((a) =>
-        a.id === receiverAccount.id ? { ...a, balance: receiverNewBalance } : a
-      );
-    }
+  const txnId = transactionRow.id ?? transactionPayload.id;
+
+  const receiverBalance = Number(receiverAccount.balance);
+  const receiverNewBalance = receiverBalance + requestAmount;
+  const receiverUpdate = await safeUpdateAccountBalance(
+    supabase,
+    receiverAccount.id,
+    receiverAccount.owner_id,
+    receiverNewBalance,
+    receiverBalance,
+    updatedAt
+  );
+  if (receiverUpdate.error) {
+    await deletePaymentTransaction(supabase, txnId);
+    await rollbackPayerBalance(supabase, account.id, currentUser.id, balance, newBalance, updatedAt);
+    await rollbackRequestToPending(supabase, id, requestUpdate.data, updatedAt);
+    return requestErrorResult("payment_processing_failed", 500, {
+      debug: debugDetails({
+        step: "credit_receiver",
+        message: receiverUpdate.error?.message ?? null
+      })
+    });
   }
 
   const offsetAccountId = "internal_payment_clearing";
@@ -773,9 +814,26 @@ export async function payIncomingPaymentRequest(id, payload, options = {}) {
   ];
 
   const ledgerInsert = await safeInsertLedgerEntries(supabase, ledgerEntriesToInsert);
-  const ledgerRows = Array.isArray(ledgerInsert.data) && ledgerInsert.data.length > 0
-    ? ledgerInsert.data
-    : ledgerEntriesToInsert;
+  if (ledgerInsert.error || !Array.isArray(ledgerInsert.data) || ledgerInsert.data.length === 0) {
+    await deletePaymentTransaction(supabase, txnId);
+    await rollbackPayerBalance(supabase, account.id, currentUser.id, balance, newBalance, updatedAt);
+    await rollbackPayerBalance(
+      supabase,
+      receiverAccount.id,
+      receiverAccount.owner_id,
+      receiverBalance,
+      receiverNewBalance,
+      updatedAt
+    );
+    await rollbackRequestToPending(supabase, id, requestUpdate.data, updatedAt);
+    return requestErrorResult("payment_processing_failed", 500, {
+      debug: debugDetails({
+        step: "insert_ledger_entries",
+        message: ledgerInsert.error?.message ?? null
+      })
+    });
+  }
+  const ledgerRows = ledgerInsert.data;
 
   return {
     ok: true,
@@ -855,6 +913,12 @@ export default async function handler(req, res) {
   }
   const direction = url.searchParams.get("direction");
   const currentUser = resolveCurrentUser(req);
+  if (!currentUser) {
+    jsonResponse(res, 401, {
+      error: { code: "unauthorized", message: "Authentication required." }
+    });
+    return;
+  }
   let result = null;
 
   if (req.method === "POST" && pathParts.length === 0) {
