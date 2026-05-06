@@ -76,7 +76,7 @@ export default defineConfig(({ mode }) => {
               res.statusCode = result.statusCode;
               res.end(result.body);
             } catch (error) {
-              server.config.logger.error(error);
+              server.config.logger.error(`[API ERROR] ${error?.message ?? error}\n${error?.stack ?? ""}`);
               sendJsonError(res);
             }
           });
