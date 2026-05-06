@@ -1,13 +1,13 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { createSupabaseServerClient, includeDebugDetails, isProduction } from "./supabase-client.js";
-import { validateCreatePaymentRequestPayload } from "./payment-request-validation.js";
+import { createSupabaseServerClient, includeDebugDetails, isProduction } from "../supabase-client.js";
+import { validateCreatePaymentRequestPayload } from "../payment-request-validation.js";
 import {
   ERROR_MESSAGES,
   EXPIRY_WINDOW_MS,
   computeExpiresAt,
   computeDaysRemaining
-} from "../src/payment-request.js";
-import { demoUser, friends } from "../src/mock-data.js";
+} from "../../src/payment-request.js";
+import { demoUser, friends } from "../../src/mock-data.js";
 
 const ALL_USERS = [demoUser, ...friends];
 const ACCOUNTS_TABLE = "accounts";
