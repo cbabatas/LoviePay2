@@ -322,7 +322,6 @@ function renderSignIn() {
       <section class="auth-panel" aria-labelledby="signin-title">
         <div class="brand-mark" aria-hidden="true">LP</div>
         <h1 id="signin-title">LoviePay</h1>
-        <p class="muted">Log in with the demo account to create a payment request.</p>
         <form id="signin-form" class="form-stack" novalidate>
           <label>
             <span>Email</span>
