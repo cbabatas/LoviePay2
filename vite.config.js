@@ -1,5 +1,6 @@
 import { defineConfig, loadEnv } from "vite";
 import paymentRequestsHandler from "./api/payment-requests.js";
+import customerAccountsHandler from "./api/customer-accounts.js";
 
 const SERVER_ENV_KEYS = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"];
 
@@ -35,14 +36,14 @@ function applyServerEnv(mode) {
   }
 }
 
-function sendJsonError(res) {
+function sendJsonError(res, error) {
   res.statusCode = 500;
   res.setHeader("Content-Type", "application/json");
   res.end(
     JSON.stringify({
       error: {
         code: "request_creation_failed",
-        message: "The request could not be created. Try again."
+        message: error?.message || "The request could not be completed. Try again."
       }
     })
   );
@@ -77,7 +78,28 @@ export default defineConfig(({ mode }) => {
               res.end(result.body);
             } catch (error) {
               server.config.logger.error(`[API ERROR] ${error?.message ?? error}\n${error?.stack ?? ""}`);
-              sendJsonError(res);
+              sendJsonError(res, error);
+            }
+          });
+
+          server.middlewares.use("/api/customer/accounts", async (req, res) => {
+            try {
+              const result = await new Promise(async (resolve, reject) => {
+                try {
+                  await customerAccountsHandler(req, createMockResponse(resolve));
+                } catch (error) {
+                  reject(error);
+                }
+              });
+
+              for (const [name, value] of Object.entries(result.headers)) {
+                res.setHeader(name, value);
+              }
+              res.statusCode = result.statusCode;
+              res.end(result.body);
+            } catch (error) {
+              server.config.logger.error(`[API ERROR] ${error?.message ?? error}\n${error?.stack ?? ""}`);
+              sendJsonError(res, error);
             }
           });
         }

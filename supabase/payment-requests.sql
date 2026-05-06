@@ -45,12 +45,48 @@ create table if not exists public.accounts (
   id text primary key,
   owner_id text not null,
   display_name text not null,
+  account_number text not null,
+  account_type text not null
+    check (account_type in ('current_account', 'term_deposit')),
   currency text not null,
   balance numeric not null check (balance >= 0),
-  account_code text not null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- Backfill columns when upgrading an existing accounts table
+alter table public.accounts
+  add column if not exists account_number text;
+
+update public.accounts
+  set account_number = id
+  where account_number is null;
+
+alter table public.accounts
+  alter column account_number set not null;
+
+alter table public.accounts
+  add column if not exists account_type text;
+
+update public.accounts
+  set account_type = 'current_account'
+  where account_type is null;
+
+alter table public.accounts
+  alter column account_type set not null;
+
+alter table public.accounts
+  drop constraint if exists accounts_account_type_check;
+
+alter table public.accounts
+  add constraint accounts_account_type_check
+  check (account_type in ('current_account', 'term_deposit'));
+
+alter table public.accounts
+  drop column if exists account_code;
+
+create unique index if not exists accounts_account_number_idx
+  on public.accounts (account_number);
 
 create index if not exists accounts_owner_currency_idx
   on public.accounts (owner_id, currency);

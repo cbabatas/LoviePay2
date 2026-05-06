@@ -1209,9 +1209,10 @@ function buildPayTables(overrides = {}) {
       id: "acct_eur_main",
       owner_id: "demo_user_001",
       display_name: "Everyday EUR",
+      account_number: "FI21 1234 5600 0007 85",
+      account_type: "current_account",
       currency: "EUR",
       balance: 412,
-      account_code: "1000",
       created_at: "2026-05-01T00:00:00.000Z",
       updated_at: "2026-05-01T00:00:00.000Z"
     },
@@ -1219,9 +1220,21 @@ function buildPayTables(overrides = {}) {
       id: "acct_usd_travel",
       owner_id: "demo_user_001",
       display_name: "Travel USD",
+      account_number: "US42 9988 7766 5544 33",
+      account_type: "current_account",
       currency: "USD",
       balance: 280,
-      account_code: "1010",
+      created_at: "2026-05-01T00:00:00.000Z",
+      updated_at: "2026-05-01T00:00:00.000Z"
+    },
+    {
+      id: "friend_001_acct_eur",
+      owner_id: "friend_001",
+      display_name: "Everyday EUR",
+      account_number: "FI19 1010 0001 0001 11",
+      account_type: "current_account",
+      currency: "EUR",
+      balance: 1000,
       created_at: "2026-05-01T00:00:00.000Z",
       updated_at: "2026-05-01T00:00:00.000Z"
     }
@@ -1265,15 +1278,39 @@ test("payIncomingPaymentRequest pays a pending request, marks it paid, deducts b
   assert.equal(tables.payment_transactions[0].amount, 88);
   assert.equal(tables.payment_transactions[0].source_account_id, "acct_eur_main");
 
-  assert.equal(tables.ledger_entries.length, 2);
+  assert.equal(tables.ledger_entries.length, 4);
   const debits = tables.ledger_entries.filter((e) => e.entry_type === "debit");
   const credits = tables.ledger_entries.filter((e) => e.entry_type === "credit");
-  assert.equal(debits.length, 1);
-  assert.equal(credits.length, 1);
+  assert.equal(debits.length, 2);
+  assert.equal(credits.length, 2);
   const debitTotal = debits.reduce((sum, e) => sum + Number(e.amount), 0);
   const creditTotal = credits.reduce((sum, e) => sum + Number(e.amount), 0);
   assert.equal(debitTotal, creditTotal);
-  assert.equal(debitTotal, 88);
+  assert.equal(debitTotal, 88 * 2);
+
+  const payerDebit = tables.ledger_entries.find(
+    (e) => e.entry_type === "debit" && e.account_id === "acct_eur_main"
+  );
+  const offsetCredit = tables.ledger_entries.find(
+    (e) => e.entry_type === "credit" && e.account_id === "internal_payment_clearing"
+  );
+  const offsetDebit = tables.ledger_entries.find(
+    (e) => e.entry_type === "debit" && e.account_id === "internal_payment_clearing"
+  );
+  const receiverCredit = tables.ledger_entries.find(
+    (e) => e.entry_type === "credit" && e.account_id === "friend_001_acct_eur"
+  );
+
+  assert.ok(payerDebit && offsetCredit && offsetDebit && receiverCredit);
+  assert.equal(payerDebit.account_code, "10001");
+  assert.equal(offsetCredit.account_code, "10000");
+  assert.equal(offsetDebit.account_code, "10000");
+  assert.equal(receiverCredit.account_code, "10002");
+
+  assert.equal(
+    tables.accounts.find((a) => a.id === "friend_001_acct_eur").balance,
+    1088
+  );
 });
 
 test("payIncomingPaymentRequest requires confirm=true", async () => {
@@ -1401,9 +1438,10 @@ test("payIncomingPaymentRequest rejects accounts not owned by current user", asy
     id: "acct_friend_eur",
     owner_id: "friend_001",
     display_name: "Friend EUR",
+    account_number: "FI19 1010 0001 0001 11",
+    account_type: "current_account",
     currency: "EUR",
     balance: 1000,
-    account_code: "1000",
     created_at: "2026-05-01T00:00:00.000Z",
     updated_at: "2026-05-01T00:00:00.000Z"
   });
@@ -1486,7 +1524,7 @@ test("payIncomingPaymentRequest is idempotent: duplicate succeeded txn blocks fu
   assert.equal(tables.payment_transactions.length, 1);
 });
 
-test("payIncomingPaymentRequest returns processing failure when ledger insert fails and rolls back", async () => {
+test("payIncomingPaymentRequest fails atomically when ledger persistence fails", async () => {
   const { supabase, tables } = createMultiTableSupabaseMock(buildPayTables(), {
     failures: { ledger_entries: { insert: { message: "ledger boom" } } }
   });
@@ -1498,47 +1536,56 @@ test("payIncomingPaymentRequest returns processing failure when ledger insert fa
   assert.equal(result.ok, false);
   assert.equal(result.statusCode, 500);
   assert.equal(result.body.error.code, "payment_processing_failed");
+  // Full rollback: request is back to pending, balances untouched, no transaction persisted.
   assert.equal(tables.payment_requests[0].status, "pending");
-  assert.equal(tables.accounts[0].balance, 412);
+  assert.equal(tables.accounts.find((a) => a.id === "acct_eur_main").balance, 412);
+  assert.equal(tables.accounts.find((a) => a.id === "friend_001_acct_eur").balance, 1000);
   assert.equal(tables.payment_transactions.length, 0);
   assert.equal(tables.ledger_entries.length, 0);
 });
 
-test("findEligibleSourceAccounts filters by request currency for current-user accounts only", () => {
+test("findEligibleSourceAccounts filters by request currency", () => {
   const eurReq = { currency: "EUR" };
-  const accounts = findEligibleSourceAccounts(eurReq, demoUser);
+  const accounts = findEligibleSourceAccounts(eurReq, demoUser.receiverAccounts);
   assert.deepEqual(accounts.map((a) => a.id), ["acct_eur_main"]);
 
   const usdReq = { currency: "USD" };
-  assert.deepEqual(findEligibleSourceAccounts(usdReq, demoUser).map((a) => a.id), [
-    "acct_usd_travel"
-  ]);
+  assert.deepEqual(
+    findEligibleSourceAccounts(usdReq, demoUser.receiverAccounts).map((a) => a.id),
+    ["acct_usd_travel"]
+  );
 });
 
 test("defaultSelectedSourceAccountId selects the only eligible account, otherwise empty", () => {
-  assert.equal(defaultSelectedSourceAccountId({ currency: "EUR" }, demoUser), "acct_eur_main");
-  const altUser = {
-    ...demoUser,
-    receiverAccounts: [
-      ...demoUser.receiverAccounts,
-      { id: "acct_eur_extra", ownerId: demoUser.id, label: "Extra", displayName: "Extra", currency: "EUR", balance: 0, accountCode: "1099" }
-    ]
-  };
-  assert.equal(defaultSelectedSourceAccountId({ currency: "EUR" }, altUser), "");
-  assert.equal(defaultSelectedSourceAccountId({ currency: "JPY" }, demoUser), "");
+  assert.equal(
+    defaultSelectedSourceAccountId({ currency: "EUR" }, demoUser.receiverAccounts),
+    "acct_eur_main"
+  );
+  const multipleEur = [
+    ...demoUser.receiverAccounts,
+    { id: "acct_eur_extra", ownerId: demoUser.id, label: "Extra", displayName: "Extra", accountNumber: "FI19 9999 0000 0000 99", accountType: "current_account", currency: "EUR", balance: 0 }
+  ];
+  assert.equal(defaultSelectedSourceAccountId({ currency: "EUR" }, multipleEur), "");
+  assert.equal(defaultSelectedSourceAccountId({ currency: "JPY" }, demoUser.receiverAccounts), "");
 });
 
 test("describeSourceAccountState reports none/single/multiple states", () => {
-  assert.equal(describeSourceAccountState({ currency: "EUR" }, demoUser).state, "single");
-  assert.equal(describeSourceAccountState({ currency: "JPY" }, demoUser).state, "none");
-  const altUser = {
-    ...demoUser,
-    receiverAccounts: [
-      ...demoUser.receiverAccounts,
-      { id: "acct_eur_extra", ownerId: demoUser.id, label: "Extra", displayName: "Extra", currency: "EUR", balance: 0, accountCode: "1099" }
-    ]
-  };
-  assert.equal(describeSourceAccountState({ currency: "EUR" }, altUser).state, "multiple");
+  assert.equal(
+    describeSourceAccountState({ currency: "EUR" }, demoUser.receiverAccounts).state,
+    "single"
+  );
+  assert.equal(
+    describeSourceAccountState({ currency: "JPY" }, demoUser.receiverAccounts).state,
+    "none"
+  );
+  const multipleEur = [
+    ...demoUser.receiverAccounts,
+    { id: "acct_eur_extra", ownerId: demoUser.id, label: "Extra", displayName: "Extra", accountNumber: "FI19 9999 0000 0000 99", accountType: "current_account", currency: "EUR", balance: 0 }
+  ];
+  assert.equal(
+    describeSourceAccountState({ currency: "EUR" }, multipleEur).state,
+    "multiple"
+  );
 });
 
 test("canPayIncoming permits only fresh pending incoming requests for current user", () => {
@@ -1559,29 +1606,27 @@ test("canPayIncoming permits only fresh pending incoming requests for current us
 
 test("canConfirmPayment requires pending request, eligible account, sufficient balance", () => {
   const request = { status: "pending", currency: "EUR", amount: 88 };
+  const accounts = demoUser.receiverAccounts;
   assert.equal(
-    canConfirmPayment({ request, selectedAccountId: "acct_eur_main", currentUser: demoUser }),
+    canConfirmPayment({ request, selectedAccountId: "acct_eur_main", accounts }),
     true
   );
   assert.equal(
-    canConfirmPayment({ request, selectedAccountId: "acct_usd_travel", currentUser: demoUser }),
+    canConfirmPayment({ request, selectedAccountId: "acct_usd_travel", accounts }),
     false
   );
   assert.equal(
-    canConfirmPayment({ request, selectedAccountId: "", currentUser: demoUser }),
+    canConfirmPayment({ request, selectedAccountId: "", accounts }),
     false
   );
-  const lowBalUser = {
-    ...demoUser,
-    receiverAccounts: demoUser.receiverAccounts.map((a) =>
-      a.id === "acct_eur_main" ? { ...a, balance: 50 } : a
-    )
-  };
+  const lowBalAccounts = accounts.map((a) =>
+    a.id === "acct_eur_main" ? { ...a, balance: 50 } : a
+  );
   assert.equal(
     canConfirmPayment({
       request,
       selectedAccountId: "acct_eur_main",
-      currentUser: lowBalUser
+      accounts: lowBalAccounts
     }),
     false
   );

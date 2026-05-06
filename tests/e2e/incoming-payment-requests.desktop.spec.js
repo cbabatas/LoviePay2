@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 const demoEmail = "ayla.demo@loviepay.test";
-const demoPassword = "demo-pass-001";
+const demoPassword = "1234";
 
 // Fixture assumptions: the UI maps these sender IDs to visible demo friend
 // details, and incoming API results are already scoped to the current demo user.
@@ -341,7 +341,7 @@ test.describe("incoming payment requests desktop flow", () => {
     await expect(page.getByText(/5/).first()).toBeVisible();
     expect(detailRequests).toContain("req_in_pending_detail");
 
-    await page.getByRole("button", { name: "Back" }).click();
+    await page.locator("#back-to-incoming").click();
 
     // Filter is preserved: only pending rows are visible after Back.
     await expect(page.getByRole("combobox", { name: "Status" })).toHaveValue("pending");
@@ -385,7 +385,7 @@ test.describe("incoming payment requests desktop flow", () => {
     await expect(page.getByRole("button", { name: "Decline", exact: true })).toHaveCount(0);
     expect(declineRequests).toEqual(["req_in_pending_list", "req_in_pending_detail"]);
 
-    await page.getByRole("button", { name: "Back" }).click();
+    await page.locator("#back-to-incoming").click();
 
     // The expired row never has a Decline button.
     const expiredRow = requestRow(page, "Tomas Virtanen");

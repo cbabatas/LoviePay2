@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 const demoEmail = "ayla.demo@loviepay.test";
-const demoPassword = "demo-pass-001";
+const demoPassword = "1234";
 
 // Fixture assumptions: the UI maps these recipient IDs to visible demo friend
 // details, and outgoing API results are already scoped to the current demo user.
@@ -252,7 +252,7 @@ test.describe("outgoing payment requests desktop flow", () => {
     await expect(page.getByText("pending", { exact: true })).toBeVisible();
     expect(detailRequests).toContain("req_out_pending_detail");
 
-    await page.getByRole("button", { name: "Back" }).click();
+    await page.locator("#back-to-outgoing").click();
     await expect(requestRow(page, "Mika Korhonen")).toBeVisible();
     await expect(requestRow(page, "Leila Santos")).toBeVisible();
   });
@@ -281,13 +281,14 @@ test.describe("outgoing payment requests desktop flow", () => {
     await requestRow(page, "Leila Santos").click();
     await page.getByRole("button", { name: "Withdraw" }).click();
     await page.getByRole("button", { name: "Confirm withdrawal" }).click();
-    await expect(page.getByText("withdrawn")).toBeVisible();
+    await expect(page.locator(".status-withdrawn").first()).toBeVisible();
     expect(withdrawRequests).toEqual(["req_out_pending_detail"]);
 
-    await page.getByRole("button", { name: "Back" }).click();
+    await page.locator("#back-to-outgoing").click();
     await requestRow(page, "Jonas Berg").click();
-    await expect(page.getByText(/cannot be withdrawn|not eligible|unavailable/i)).toBeVisible();
-    await expect(page.getByRole("button", { name: "Withdraw" })).toHaveCount(0);
+    const detailPanel = page.locator(".detail-panel");
+    await expect(detailPanel.getByText(/cannot be withdrawn|not eligible|unavailable/i)).toBeVisible();
+    await expect(detailPanel.getByRole("button", { name: "Withdraw" })).toHaveCount(0);
   });
 
   test("shows stale-status ineligible messaging when backend blocks withdrawal", async ({ page }) => {
@@ -306,7 +307,7 @@ test.describe("outgoing payment requests desktop flow", () => {
     const mikaRow = requestRow(page, "Mika Korhonen");
     await mikaRow.getByRole("button", { name: "Withdraw" }).click();
     await page.getByRole("button", { name: "Confirm withdrawal" }).click();
-    await expect(page.getByText(/can no longer be withdrawn|cannot be withdrawn/i)).toBeVisible();
+    await expect(page.getByRole("alert")).toContainText(/can no longer be withdrawn/i);
     await expect(mikaRow).toContainText("withdrawn");
   });
 
