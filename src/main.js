@@ -265,7 +265,7 @@ function renderWorkspace() {
 }
 
 function renderCreateView() {
-  const accountOptions = demoUser.receiverAccounts
+  const accountOptions = state.currentUser.receiverAccounts
     .map(
       (account) => `
         <option value="${account.id}" ${state.receiverAccountId === account.id ? "selected" : ""}>
@@ -381,7 +381,7 @@ function searchFriendsForCreate(query) {
   if (!normalized) return [];
 
   return friends.filter((friend) => {
-    if (!friend.active || friend.id === demoUser.id) return false;
+    if (!friend.active || friend.id === state.currentUser.id) return false;
     return [friend.fullName, friend.email, friend.phone]
       .map((value) => String(value ?? "").toLowerCase())
       .join(" ")
@@ -500,7 +500,7 @@ function renderOutgoingView() {
       <div class="section-heading">
         <div>
           <h2 id="outgoing-title">Outgoing requests</h2>
-          <p class="muted">Requests created by ${escapeHtml(demoUser.fullName)}.</p>
+          <p class="muted">Requests created by ${escapeHtml(state.currentUser.fullName)}.</p>
         </div>
         ${state.outgoing.successMessage ? `<p class="banner banner-success" role="status">${escapeHtml(state.outgoing.successMessage)}</p>` : ""}
       </div>
@@ -674,7 +674,7 @@ function renderIncomingView() {
       <div class="section-heading">
         <div>
           <h2 id="incoming-title">Incoming requests</h2>
-          <p class="muted">Requests addressed to ${escapeHtml(demoUser.fullName)}.</p>
+          <p class="muted">Requests addressed to ${escapeHtml(state.currentUser.fullName)}.</p>
         </div>
         ${state.incoming.successMessage ? `<p class="banner banner-success" role="status">${escapeHtml(state.incoming.successMessage)}</p>` : ""}
       </div>
@@ -1304,7 +1304,7 @@ async function loadIncomingRequests(force = false) {
     state.incoming.error = error.message || ERROR_MESSAGES.incoming_list_failed;
     if (!state.incoming.loaded) {
       const fallback = paymentRequests
-        .filter((request) => request.recipientId === demoUser.id)
+        .filter((request) => request.recipientId === state.currentUser.id)
         .map((request) => shapeIncomingForDisplay(request));
       state.incoming.items = fallback;
       state.incoming.error = "";
