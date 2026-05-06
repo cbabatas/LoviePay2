@@ -36,7 +36,8 @@ export const ERROR_MESSAGES = {
   payment_processing_failed: "Payment failed. No changes were made. Try again.",
   no_matching_source_account: "You have no account in this currency. Payment is unavailable.",
   unavailable_pay_action: "This request cannot be paid because it is no longer pending.",
-  pay_failed: "The payment could not be completed. Try again."
+  pay_failed: "The payment could not be completed. Try again.",
+  customer_accounts_failed: "Could not load your accounts. Try again."
 };
 
 export const PAYMENT_REQUEST_STATUS = {
@@ -368,36 +369,26 @@ export function unavailablePayMessage(errorCode) {
   return ERROR_MESSAGES[errorCode] ?? ERROR_MESSAGES.unavailable_pay_action;
 }
 
-export function getCurrentUserSourceAccounts(currentUser = demoUser) {
-  return [...(currentUser?.receiverAccounts ?? [])].filter(
-    (account) => (account.ownerId ?? currentUser?.id) === currentUser?.id
-  );
-}
-
-export function findEligibleSourceAccounts(request, currentUser = demoUser) {
+export function findEligibleSourceAccounts(request, accounts = []) {
   if (!request?.currency) return [];
-  return getCurrentUserSourceAccounts(currentUser).filter(
-    (account) => account.currency === request.currency
-  );
+  return accounts.filter((account) => account.currency === request.currency);
 }
 
-export function defaultSelectedSourceAccountId(request, currentUser = demoUser) {
-  const eligible = findEligibleSourceAccounts(request, currentUser);
+export function defaultSelectedSourceAccountId(request, accounts = []) {
+  const eligible = findEligibleSourceAccounts(request, accounts);
   return eligible.length === 1 ? eligible[0].id : "";
 }
 
-export function findSelectedSourceAccount(accountId, currentUser = demoUser) {
+export function findSelectedSourceAccount(accountId, accounts = []) {
   if (!accountId) return null;
-  return (
-    getCurrentUserSourceAccounts(currentUser).find((account) => account.id === accountId) ?? null
-  );
+  return accounts.find((account) => account.id === accountId) ?? null;
 }
 
-export function canConfirmPayment({ request, selectedAccountId, currentUser = demoUser } = {}) {
+export function canConfirmPayment({ request, selectedAccountId, accounts = [] } = {}) {
   if (!request) return false;
   if (normalizeSearch(request.status) !== PAYMENT_REQUEST_STATUS.pending) return false;
 
-  const account = findSelectedSourceAccount(selectedAccountId, currentUser);
+  const account = findSelectedSourceAccount(selectedAccountId, accounts);
   if (!account) return false;
   if (account.currency !== request.currency) return false;
   if (Number(account.balance) < Number(request.amount)) return false;
@@ -411,8 +402,8 @@ export function canPayIncoming(request, currentUser = demoUser, now = new Date()
   return !isPastExpiry(request.createdAt ?? request.created_at, now);
 }
 
-export function describeSourceAccountState(request, currentUser = demoUser) {
-  const eligible = findEligibleSourceAccounts(request, currentUser);
+export function describeSourceAccountState(request, accounts = []) {
+  const eligible = findEligibleSourceAccounts(request, accounts);
   if (eligible.length === 0) {
     return { state: "none", accounts: [], message: ERROR_MESSAGES.no_matching_source_account };
   }

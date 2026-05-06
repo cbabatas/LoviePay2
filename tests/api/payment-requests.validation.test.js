@@ -1542,41 +1542,48 @@ test("payIncomingPaymentRequest treats ledger persistence as best-effort and sti
   assert.equal(tables.ledger_entries.length, 0);
 });
 
-test("findEligibleSourceAccounts filters by request currency for current-user accounts only", () => {
+test("findEligibleSourceAccounts filters by request currency", () => {
   const eurReq = { currency: "EUR" };
-  const accounts = findEligibleSourceAccounts(eurReq, demoUser);
+  const accounts = findEligibleSourceAccounts(eurReq, demoUser.receiverAccounts);
   assert.deepEqual(accounts.map((a) => a.id), ["acct_eur_main"]);
 
   const usdReq = { currency: "USD" };
-  assert.deepEqual(findEligibleSourceAccounts(usdReq, demoUser).map((a) => a.id), [
-    "acct_usd_travel"
-  ]);
+  assert.deepEqual(
+    findEligibleSourceAccounts(usdReq, demoUser.receiverAccounts).map((a) => a.id),
+    ["acct_usd_travel"]
+  );
 });
 
 test("defaultSelectedSourceAccountId selects the only eligible account, otherwise empty", () => {
-  assert.equal(defaultSelectedSourceAccountId({ currency: "EUR" }, demoUser), "acct_eur_main");
-  const altUser = {
-    ...demoUser,
-    receiverAccounts: [
-      ...demoUser.receiverAccounts,
-      { id: "acct_eur_extra", ownerId: demoUser.id, label: "Extra", displayName: "Extra", accountNumber: "FI19 9999 0000 0000 99", accountType: "current_account", currency: "EUR", balance: 0 }
-    ]
-  };
-  assert.equal(defaultSelectedSourceAccountId({ currency: "EUR" }, altUser), "");
-  assert.equal(defaultSelectedSourceAccountId({ currency: "JPY" }, demoUser), "");
+  assert.equal(
+    defaultSelectedSourceAccountId({ currency: "EUR" }, demoUser.receiverAccounts),
+    "acct_eur_main"
+  );
+  const multipleEur = [
+    ...demoUser.receiverAccounts,
+    { id: "acct_eur_extra", ownerId: demoUser.id, label: "Extra", displayName: "Extra", accountNumber: "FI19 9999 0000 0000 99", accountType: "current_account", currency: "EUR", balance: 0 }
+  ];
+  assert.equal(defaultSelectedSourceAccountId({ currency: "EUR" }, multipleEur), "");
+  assert.equal(defaultSelectedSourceAccountId({ currency: "JPY" }, demoUser.receiverAccounts), "");
 });
 
 test("describeSourceAccountState reports none/single/multiple states", () => {
-  assert.equal(describeSourceAccountState({ currency: "EUR" }, demoUser).state, "single");
-  assert.equal(describeSourceAccountState({ currency: "JPY" }, demoUser).state, "none");
-  const altUser = {
-    ...demoUser,
-    receiverAccounts: [
-      ...demoUser.receiverAccounts,
-      { id: "acct_eur_extra", ownerId: demoUser.id, label: "Extra", displayName: "Extra", accountNumber: "FI19 9999 0000 0000 99", accountType: "current_account", currency: "EUR", balance: 0 }
-    ]
-  };
-  assert.equal(describeSourceAccountState({ currency: "EUR" }, altUser).state, "multiple");
+  assert.equal(
+    describeSourceAccountState({ currency: "EUR" }, demoUser.receiverAccounts).state,
+    "single"
+  );
+  assert.equal(
+    describeSourceAccountState({ currency: "JPY" }, demoUser.receiverAccounts).state,
+    "none"
+  );
+  const multipleEur = [
+    ...demoUser.receiverAccounts,
+    { id: "acct_eur_extra", ownerId: demoUser.id, label: "Extra", displayName: "Extra", accountNumber: "FI19 9999 0000 0000 99", accountType: "current_account", currency: "EUR", balance: 0 }
+  ];
+  assert.equal(
+    describeSourceAccountState({ currency: "EUR" }, multipleEur).state,
+    "multiple"
+  );
 });
 
 test("canPayIncoming permits only fresh pending incoming requests for current user", () => {
@@ -1597,29 +1604,27 @@ test("canPayIncoming permits only fresh pending incoming requests for current us
 
 test("canConfirmPayment requires pending request, eligible account, sufficient balance", () => {
   const request = { status: "pending", currency: "EUR", amount: 88 };
+  const accounts = demoUser.receiverAccounts;
   assert.equal(
-    canConfirmPayment({ request, selectedAccountId: "acct_eur_main", currentUser: demoUser }),
+    canConfirmPayment({ request, selectedAccountId: "acct_eur_main", accounts }),
     true
   );
   assert.equal(
-    canConfirmPayment({ request, selectedAccountId: "acct_usd_travel", currentUser: demoUser }),
+    canConfirmPayment({ request, selectedAccountId: "acct_usd_travel", accounts }),
     false
   );
   assert.equal(
-    canConfirmPayment({ request, selectedAccountId: "", currentUser: demoUser }),
+    canConfirmPayment({ request, selectedAccountId: "", accounts }),
     false
   );
-  const lowBalUser = {
-    ...demoUser,
-    receiverAccounts: demoUser.receiverAccounts.map((a) =>
-      a.id === "acct_eur_main" ? { ...a, balance: 50 } : a
-    )
-  };
+  const lowBalAccounts = accounts.map((a) =>
+    a.id === "acct_eur_main" ? { ...a, balance: 50 } : a
+  );
   assert.equal(
     canConfirmPayment({
       request,
       selectedAccountId: "acct_eur_main",
-      currentUser: lowBalUser
+      accounts: lowBalAccounts
     }),
     false
   );

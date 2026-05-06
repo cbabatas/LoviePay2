@@ -5,6 +5,7 @@ export const demoUser = {
   fullName: "Ayla Demir",
   email: "ayla.demo@loviepay.test",
   password: "1234",
+  active: true,
   customerNumber: "LP-204813",
   avatarLabel: "AD",
   receiverAccounts: [

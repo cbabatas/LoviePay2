@@ -563,15 +563,11 @@ export async function payIncomingPaymentRequest(id, payload, options = {}) {
     });
   }
 
-  let account = null;
-  let usingPersistedAccount = false;
   const persistedAccount = await fetchSourceAccount(supabase, sourceAccountId);
-  if (persistedAccount.data && persistedAccount.data.owner_id === currentUser.id) {
-    account = persistedAccount.data;
-    usingPersistedAccount = true;
-  } else {
-    account = findDemoSourceAccount(currentUser, sourceAccountId);
-  }
+  const account =
+    persistedAccount.data && persistedAccount.data.owner_id === currentUser.id
+      ? persistedAccount.data
+      : null;
 
   if (!account) {
     return requestErrorResult("source_account_not_found", 404, {
@@ -580,7 +576,6 @@ export async function payIncomingPaymentRequest(id, payload, options = {}) {
         step: "fetch_source_account",
         sourceAccountId,
         currentUserId: currentUser?.id,
-        receiverAccountIds: (currentUser?.receiverAccounts ?? []).map((a) => a.id),
         supabaseError: persistedAccount.error?.message ?? null
       }
     });
@@ -640,27 +635,21 @@ export async function payIncomingPaymentRequest(id, payload, options = {}) {
     updated_at: updatedAt
   };
 
-  if (usingPersistedAccount) {
-    const accountUpdate = await safeUpdateAccountBalance(
-      supabase,
-      account.id,
-      currentUser.id,
-      newBalance,
-      updatedAt
-    );
-    if (accountUpdate.error) {
-      await supabase
-        .from(PAYMENT_REQUESTS_TABLE)
-        .update({ status: "pending", updated_at: existing.data.updated_at ?? updatedAt })
-        .eq("id", id)
-        .select()
-        .maybeSingle();
-      return requestErrorResult("payment_processing_failed", 500);
-    }
-  } else if (currentUser?.receiverAccounts) {
-    currentUser.receiverAccounts = currentUser.receiverAccounts.map((a) =>
-      a.id === account.id ? { ...a, balance: newBalance } : a
-    );
+  const accountUpdate = await safeUpdateAccountBalance(
+    supabase,
+    account.id,
+    currentUser.id,
+    newBalance,
+    updatedAt
+  );
+  if (accountUpdate.error) {
+    await supabase
+      .from(PAYMENT_REQUESTS_TABLE)
+      .update({ status: "pending", updated_at: existing.data.updated_at ?? updatedAt })
+      .eq("id", id)
+      .select()
+      .maybeSingle();
+    return requestErrorResult("payment_processing_failed", 500);
   }
 
   const transactionPayload = {

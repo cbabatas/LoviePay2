@@ -842,7 +842,7 @@ dd {
 }
 
 .pay-dialog {
-  min-width: min(420px, 90vw);
+  min-width: min(480px, 92vw);
   max-width: 92vw;
 }
 
@@ -856,16 +856,30 @@ dd {
   display: block;
   width: 100%;
   margin-top: 0.25rem;
-  padding: 0.5rem;
+  padding: 0.5rem 0.6rem;
   border: 1px solid var(--border, #d0d0d0);
   border-radius: 6px;
   font-size: 1rem;
+  text-overflow: ellipsis;
 }
 
 .pay-dialog .pay-balance-summary {
-  margin: 0.25rem 0 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin: 0.25rem 0 0.75rem;
   color: var(--muted, #6a6a6a);
   font-size: 0.9rem;
+}
+
+.pay-dialog .pay-balance-summary .pay-account-type {
+  color: var(--text, #1f1f1f);
+  font-weight: 600;
+}
+
+.pay-dialog .pay-balance-summary .pay-account-number {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85rem;
 }
 
 .pay-dialog .pay-no-account {

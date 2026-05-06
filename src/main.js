@@ -29,6 +29,7 @@ import {
 import {
   createPaymentRequest,
   declineIncomingPaymentRequest,
+  fetchCustomerAccounts,
   fetchIncomingPaymentRequest,
   fetchIncomingPaymentRequests,
   fetchPaymentRequestByHash,
@@ -193,6 +194,11 @@ const state = {
     payProcessing: false,
     payError: "",
     successMessage: ""
+  },
+  customer: {
+    accounts: [],
+    accountsLoading: false,
+    accountsError: ""
   }
 };
 
@@ -990,26 +996,34 @@ function renderPayDialog() {
   if (!request) return "";
 
   const sender = findSenderDisplay(request.senderId);
-  const eligible = findEligibleSourceAccounts(request, state.currentUser);
-  const description = describeSourceAccountState(request, state.currentUser);
-  const selectedAccount = findSelectedSourceAccount(dialog.selectedAccountId, state.currentUser);
+  const accounts = state.customer.accounts;
+  const accountsLoading = state.customer.accountsLoading;
+  const accountsError = state.customer.accountsError;
+  const eligible = findEligibleSourceAccounts(request, accounts);
+  const description = describeSourceAccountState(request, accounts);
+  const selectedAccount = findSelectedSourceAccount(dialog.selectedAccountId, accounts);
   const balance = selectedAccount ? Number(selectedAccount.balance) : null;
   const amount = Number(request.amount);
   const insufficient =
     selectedAccount && balance < amount && !state.incoming.payProcessing;
-  const noAccount = description.state === "none";
+  const noAccount = !accountsLoading && !accountsError && description.state === "none";
   const requiresSelection = description.state === "multiple" && !selectedAccount;
 
   const confirmDisabled =
     state.incoming.paying ||
     state.incoming.payProcessing ||
+    accountsLoading ||
+    Boolean(accountsError) ||
     noAccount ||
     requiresSelection ||
     !selectedAccount ||
     insufficient;
 
-  const accountSelector =
-    description.state === "single"
+  const accountSelector = accountsLoading
+    ? `<p class="banner banner-info" role="status">Loading your accounts...</p>`
+    : accountsError
+      ? `<p class="banner banner-error" role="alert">${escapeHtml(accountsError)}</p>`
+      : description.state === "single"
       ? `<p class="pay-account-fixed">Source account: <strong>${escapeHtml(eligible[0].displayName ?? eligible[0].label)}</strong> · ${escapeHtml(formatAccountTypeLabel(eligible[0].accountType))}<br /><span class="pay-account-number">${escapeHtml(eligible[0].accountNumber ?? "")}</span> · ${escapeHtml(formatAmount(eligible[0].balance, eligible[0].currency))} ${escapeHtml(eligible[0].currency)}</p>`
       : description.state === "multiple"
         ? `<label class="pay-account-label" for="pay-source-account">
@@ -1020,7 +1034,7 @@ function renderPayDialog() {
                 .map(
                   (account) => `
                 <option value="${escapeHtml(account.id)}" ${dialog.selectedAccountId === account.id ? "selected" : ""}>
-                  ${escapeHtml(account.displayName ?? account.label)} (${escapeHtml(formatAccountTypeLabel(account.accountType))}) — ${escapeHtml(formatAmount(account.balance, account.currency))} ${escapeHtml(account.currency)}
+                  ${escapeHtml(account.displayName ?? account.label)} · ${escapeHtml(formatAmount(account.balance, account.currency))} ${escapeHtml(account.currency)}
                 </option>
               `
                 )
@@ -1031,7 +1045,11 @@ function renderPayDialog() {
 
   const balanceSummary =
     selectedAccount && description.state !== "single"
-      ? `<p class="pay-balance-summary">${escapeHtml(selectedAccount.accountNumber ?? "")}${selectedAccount.accountNumber ? " · " : ""}Balance: ${escapeHtml(formatAmount(balance, selectedAccount.currency))} ${escapeHtml(selectedAccount.currency)}</p>`
+      ? `<p class="pay-balance-summary">
+          <span class="pay-account-type">${escapeHtml(formatAccountTypeLabel(selectedAccount.accountType))}</span>
+          ${selectedAccount.accountNumber ? `<span class="pay-account-number">${escapeHtml(selectedAccount.accountNumber)}</span>` : ""}
+          <span class="pay-account-balance">Balance: ${escapeHtml(formatAmount(balance, selectedAccount.currency))} ${escapeHtml(selectedAccount.currency)}</span>
+        </p>`
       : "";
 
   const insufficientBanner = insufficient
@@ -1566,20 +1584,39 @@ function handlePayKeydown(event) {
   }
 }
 
-function openPayDialog(requestId, source) {
-  const request =
-    state.incoming.items.find((item) => item.id === requestId) ?? state.incoming.detail;
-  const selectedAccountId =
-    state.incoming.pay?.requestId === requestId
-      ? state.incoming.pay.selectedAccountId
-      : defaultSelectedSourceAccountId(request, state.currentUser);
+async function openPayDialog(requestId, source) {
   state.incoming.pay = {
     requestId,
     source,
-    selectedAccountId
+    selectedAccountId: ""
   };
   state.incoming.payError = "";
   state.incoming.payProcessing = false;
+  state.customer.accounts = [];
+  state.customer.accountsLoading = true;
+  state.customer.accountsError = "";
+  render();
+
+  let accounts = [];
+  try {
+    accounts = await fetchCustomerAccounts();
+  } catch (error) {
+    if (state.incoming.pay?.requestId !== requestId) return;
+    state.customer.accountsLoading = false;
+    state.customer.accountsError =
+      error?.message || ERROR_MESSAGES.customer_accounts_failed;
+    render();
+    return;
+  }
+
+  if (state.incoming.pay?.requestId !== requestId) return;
+
+  const request =
+    state.incoming.items.find((item) => item.id === requestId) ?? state.incoming.detail;
+  state.customer.accounts = accounts;
+  state.customer.accountsLoading = false;
+  state.customer.accountsError = "";
+  state.incoming.pay.selectedAccountId = defaultSelectedSourceAccountId(request, accounts);
   render();
 }
 
@@ -1588,6 +1625,9 @@ function closePayDialog() {
   state.incoming.pay = null;
   state.incoming.payError = "";
   state.incoming.paying = false;
+  state.customer.accounts = [];
+  state.customer.accountsLoading = false;
+  state.customer.accountsError = "";
   render();
 }
 
@@ -1599,7 +1639,10 @@ async function confirmPay() {
     state.incoming.items.find((item) => item.id === dialog.requestId) ?? state.incoming.detail;
   if (!request) return;
 
-  const selectedAccount = findSelectedSourceAccount(dialog.selectedAccountId, state.currentUser);
+  const selectedAccount = findSelectedSourceAccount(
+    dialog.selectedAccountId,
+    state.customer.accounts
+  );
   if (!selectedAccount) {
     state.incoming.payError = ERROR_MESSAGES.source_account_required;
     render();
@@ -1657,17 +1700,19 @@ async function confirmPay() {
   }
   state.incoming.pay = null;
   state.incoming.successMessage = "Payment completed.";
+  state.customer.accounts = [];
+  state.customer.accountsLoading = false;
+  state.customer.accountsError = "";
   render();
 }
 
 function applyUpdatedSourceAccount(updated) {
-  if (!state.currentUser?.receiverAccounts) return;
-  state.currentUser.receiverAccounts = state.currentUser.receiverAccounts.map((account) =>
+  state.customer.accounts = state.customer.accounts.map((account) =>
     account.id === updated.id
       ? {
           ...account,
           balance: Number(updated.balance),
-          displayName: updated.displayName ?? account.displayName ?? account.label,
+          displayName: updated.displayName ?? account.displayName,
           accountNumber: updated.accountNumber ?? account.accountNumber,
           accountType: updated.accountType ?? account.accountType
         }
