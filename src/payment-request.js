@@ -12,18 +12,28 @@ export const ERROR_MESSAGES = {
   request_creation_failed: "The request could not be created. Try again.",
   outgoing_list_failed: "Outgoing requests could not be loaded. Try again.",
   outgoing_detail_failed: "Request details could not be loaded. Try again.",
-  request_not_found: "This outgoing request is unavailable.",
+  request_not_found: "This request is unavailable.",
   withdraw_confirmation_required: "Confirm withdrawal before updating this request.",
   withdraw_not_allowed: "Only pending outgoing requests can be withdrawn.",
   request_update_failed: "The request could not be updated. Try again.",
   withdraw_failed: "The request could not be withdrawn. Try again.",
-  unavailable_action: "This request cannot be withdrawn because it is no longer pending."
+  unavailable_action: "This request cannot be withdrawn because it is no longer pending.",
+  incoming_list_failed: "Incoming requests could not be loaded. Try again.",
+  incoming_detail_failed: "Incoming request details could not be loaded. Try again.",
+  decline_confirmation_required: "Confirm before declining this request.",
+  decline_not_allowed: "Only pending incoming requests can be declined.",
+  decline_failed: "The request could not be declined. Try again.",
+  unavailable_decline_action: "This request cannot be declined because it is no longer pending."
 };
 
 export const PAYMENT_REQUEST_STATUS = {
   pending: "pending",
-  withdrawn: "withdrawn"
+  withdrawn: "withdrawn",
+  declined: "declined",
+  expired: "expired"
 };
+
+export const EXPIRY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
 export function normalizeSearch(value) {
   return String(value ?? "").trim().toLowerCase();
@@ -164,6 +174,8 @@ export function formatStatusLabel(status) {
   const normalized = normalizeSearch(status);
   if (normalized === PAYMENT_REQUEST_STATUS.pending) return "pending";
   if (normalized === PAYMENT_REQUEST_STATUS.withdrawn) return "withdrawn";
+  if (normalized === PAYMENT_REQUEST_STATUS.declined) return "declined";
+  if (normalized === PAYMENT_REQUEST_STATUS.expired) return "expired";
   return String(status ?? "Unknown");
 }
 
@@ -231,4 +243,98 @@ export function canWithdrawPaymentRequest(request) {
 
 export function unavailableRequestMessage(errorCode) {
   return ERROR_MESSAGES[errorCode] ?? ERROR_MESSAGES.request_not_found;
+}
+
+function toDate(value) {
+  if (value instanceof Date) return value;
+  if (value === undefined || value === null) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+export function computeExpiresAt(createdAt) {
+  const date = toDate(createdAt);
+  if (!date) return null;
+  return new Date(date.getTime() + EXPIRY_WINDOW_MS);
+}
+
+export function computeDaysRemaining(expiresAt, now = new Date()) {
+  const expiry = toDate(expiresAt);
+  const reference = toDate(now) ?? new Date();
+  if (!expiry) return 0;
+  const diffMs = expiry.getTime() - reference.getTime();
+  if (diffMs <= 0) return 0;
+  return Math.floor(diffMs / (24 * 60 * 60 * 1000));
+}
+
+export function isPastExpiry(createdAt, now = new Date()) {
+  const expiry = computeExpiresAt(createdAt);
+  if (!expiry) return false;
+  const reference = toDate(now) ?? new Date();
+  return reference.getTime() >= expiry.getTime();
+}
+
+export function canDeclineIncoming(request, now = new Date()) {
+  if (!request) return false;
+  if (normalizeSearch(request.status) !== PAYMENT_REQUEST_STATUS.pending) return false;
+  return !isPastExpiry(request.createdAt ?? request.created_at, now);
+}
+
+export function isIncomingPaymentRequest(request, currentUser = demoUser) {
+  return request?.recipientId === currentUser.id;
+}
+
+export function scopeIncomingPaymentRequests(requests, currentUser = demoUser) {
+  return [...(requests ?? [])]
+    .filter((request) => isIncomingPaymentRequest(request, currentUser))
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+}
+
+export function findSenderDisplay(senderId, friendList = friends) {
+  const sender = friendList.find((friend) => friend.id === senderId);
+  return {
+    id: senderId,
+    fullName: sender?.fullName ?? "Unknown sender",
+    email: sender?.email ?? "",
+    phone: sender?.phone ?? ""
+  };
+}
+
+export function filterIncomingPaymentRequests(requests, filters = {}, friendsById = null) {
+  const status = normalizeSearch(filters.status);
+  const senderQuery = normalizeSearch(filters.senderQuery);
+  const lookupSender = (senderId) => {
+    if (friendsById && typeof friendsById === "object") {
+      const entry =
+        friendsById instanceof Map ? friendsById.get(senderId) : friendsById[senderId];
+      if (entry) return entry;
+    }
+    return findSenderDisplay(senderId);
+  };
+
+  return [...(requests ?? [])].filter((request) => {
+    if (status && normalizeSearch(request.status) !== status) return false;
+    if (!senderQuery) return true;
+
+    const sender = lookupSender(request.senderId);
+    const searchable = [
+      sender.fullName,
+      sender.email,
+      sender.phone,
+      request.senderId,
+      request.note,
+      request.status,
+      request.currency,
+      request.amount,
+      request.createdAt
+    ]
+      .map(normalizeSearch)
+      .join(" ");
+
+    return searchable.includes(senderQuery);
+  });
+}
+
+export function unavailableDeclineMessage(errorCode) {
+  return ERROR_MESSAGES[errorCode] ?? ERROR_MESSAGES.unavailable_decline_action;
 }

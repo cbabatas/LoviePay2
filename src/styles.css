@@ -726,3 +726,29 @@ dd {
     grid-template-columns: 1fr;
   }
 }
+
+.incoming-row .row-main {
+  grid-template-columns: minmax(120px, 1fr) minmax(180px, 1.6fr) auto auto auto;
+}
+
+.incoming-row .days-remaining {
+  color: var(--muted);
+  font-size: 0.85em;
+}
+
+.status-declined {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.status-expired {
+  background: #f1f1f1;
+  color: var(--muted);
+}
+
+@media (max-width: 920px) {
+  .incoming-row .row-main {
+    grid-template-columns: 1fr;
+  }
+}
+

@@ -559,3 +559,445 @@ test("withdrawal eligibility helper only allows pending requests", () => {
   assert.equal(canWithdrawPaymentRequest({ status: "withdrawn" }), false);
   assert.equal(canWithdrawPaymentRequest(null), false);
 });
+
+import {
+  listIncomingPaymentRequests,
+  getIncomingPaymentRequest,
+  declineIncomingPaymentRequest
+} from "../../api/payment-requests.js";
+import { filterIncomingPaymentRequests } from "../../src/payment-request.js";
+
+const incomingNow = () => new Date("2026-05-06T13:00:00.000Z");
+
+const incomingRows = [
+  {
+    id: "req_in_recent",
+    sender_id: "friend_001",
+    recipient_id: "demo_user_001",
+    receiver_account_id: "acct_eur_main",
+    amount: 88,
+    currency: "EUR",
+    note: "Dinner",
+    status: "pending",
+    hash: "hash_in_recent",
+    shareable_link: "/r/hash_in_recent",
+    created_at: "2026-05-05T12:00:00.000Z",
+    updated_at: "2026-05-05T12:00:00.000Z"
+  },
+  {
+    id: "req_in_old_declined",
+    sender_id: "friend_002",
+    recipient_id: "demo_user_001",
+    receiver_account_id: "acct_usd_travel",
+    amount: 22.5,
+    currency: "USD",
+    note: "Movie",
+    status: "declined",
+    hash: "hash_in_old_declined",
+    shareable_link: "/r/hash_in_old_declined",
+    created_at: "2026-05-01T08:00:00.000Z",
+    updated_at: "2026-05-02T08:00:00.000Z"
+  },
+  {
+    id: "req_outgoing",
+    sender_id: "demo_user_001",
+    recipient_id: "friend_003",
+    receiver_account_id: "acct_eur_main",
+    amount: 60,
+    currency: "EUR",
+    note: "Bus",
+    status: "pending",
+    hash: "hash_out",
+    shareable_link: "/r/hash_out",
+    created_at: "2026-05-06T11:00:00.000Z",
+    updated_at: "2026-05-06T11:00:00.000Z"
+  }
+];
+
+test("listIncomingPaymentRequests returns recipient-scoped rows newest-first with derived fields", async () => {
+  const { supabase } = createReadUpdateSupabaseMock(incomingRows);
+  const result = await listIncomingPaymentRequests({ supabase, now: incomingNow });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.statusCode, 200);
+  const ids = result.body.paymentRequests.map((r) => r.id);
+  assert.deepEqual(ids, ["req_in_recent", "req_in_old_declined"]);
+  assert.equal(ids.includes("req_outgoing"), false);
+
+  const first = result.body.paymentRequests[0];
+  assert.equal(first.id, "req_in_recent");
+  assert.equal(first.expiresAt, "2026-05-12T12:00:00.000Z");
+  assert.equal(typeof first.daysRemaining, "number");
+  assert.equal(first.daysRemaining, 5);
+
+  const second = result.body.paymentRequests[1];
+  assert.equal(second.daysRemaining, 0);
+  assert.equal(second.expiresAt, "2026-05-08T08:00:00.000Z");
+});
+
+test("listIncomingPaymentRequests promotes pending rows past expiry to expired and updates Supabase", async () => {
+  const expiredCreatedAt = "2026-04-29T13:00:00.000Z";
+  const rows = [
+    {
+      id: "req_in_expiring",
+      sender_id: "friend_001",
+      recipient_id: "demo_user_001",
+      receiver_account_id: "acct_eur_main",
+      amount: 30,
+      currency: "EUR",
+      note: "Coffee",
+      status: "pending",
+      hash: "hash_in_expiring",
+      shareable_link: "/r/hash_in_expiring",
+      created_at: expiredCreatedAt,
+      updated_at: expiredCreatedAt
+    }
+  ];
+
+  const { supabase, calls } = createReadUpdateSupabaseMock(rows);
+  const result = await listIncomingPaymentRequests({ supabase, now: incomingNow });
+
+  assert.equal(result.ok, true);
+  const [request] = result.body.paymentRequests;
+  assert.equal(request.status, "expired");
+  assert.equal(request.daysRemaining, 0);
+  assert.equal(request.updatedAt, "2026-05-06T13:00:00.000Z");
+
+  const updateCall = calls.find(
+    (call) => call.operation === "update" && call.updatePayload?.status === "expired"
+  );
+  assert.ok(updateCall, "expected an update call promoting the row to expired");
+  assert.equal(updateCall.updatePayload.updated_at, "2026-05-06T13:00:00.000Z");
+});
+
+test("listIncomingPaymentRequests returns incoming_list_failed when Supabase select fails", async () => {
+  const { supabase } = createReadUpdateSupabaseMock(incomingRows, {
+    listError: { message: "boom" }
+  });
+  const result = await listIncomingPaymentRequests({ supabase, now: incomingNow });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.statusCode, 500);
+  assert.equal(result.body.error.code, "incoming_list_failed");
+});
+
+test("filterIncomingPaymentRequests filters by status, senderQuery, and intersects them", () => {
+  const clientRequests = [
+    {
+      id: "r1",
+      senderId: "friend_001",
+      recipientId: "demo_user_001",
+      amount: 88,
+      currency: "EUR",
+      note: "Dinner",
+      status: "pending",
+      createdAt: "2026-05-05T12:00:00.000Z"
+    },
+    {
+      id: "r2",
+      senderId: "friend_002",
+      recipientId: "demo_user_001",
+      amount: 22.5,
+      currency: "USD",
+      note: "Movie",
+      status: "declined",
+      createdAt: "2026-05-01T08:00:00.000Z"
+    },
+    {
+      id: "r3",
+      senderId: "friend_003",
+      recipientId: "demo_user_001",
+      amount: 60,
+      currency: "EUR",
+      note: "Bus ride",
+      status: "expired",
+      createdAt: "2026-04-20T08:00:00.000Z"
+    },
+    {
+      id: "r4",
+      senderId: "friend_001",
+      recipientId: "demo_user_001",
+      amount: 12,
+      currency: "EUR",
+      note: "Snack",
+      status: "pending",
+      createdAt: "2026-05-04T12:00:00.000Z"
+    }
+  ];
+
+  assert.deepEqual(
+    filterIncomingPaymentRequests(clientRequests, { status: "pending" }, friends).map((r) => r.id),
+    ["r1", "r4"]
+  );
+  assert.deepEqual(
+    filterIncomingPaymentRequests(clientRequests, { status: "declined" }, friends).map((r) => r.id),
+    ["r2"]
+  );
+  assert.deepEqual(
+    filterIncomingPaymentRequests(clientRequests, { status: "expired" }, friends).map((r) => r.id),
+    ["r3"]
+  );
+  assert.deepEqual(
+    filterIncomingPaymentRequests(clientRequests, {}, friends).map((r) => r.id),
+    ["r1", "r2", "r3", "r4"]
+  );
+
+  assert.deepEqual(
+    filterIncomingPaymentRequests(clientRequests, { senderQuery: "Mika" }, friends).map((r) => r.id),
+    ["r1", "r4"]
+  );
+  assert.deepEqual(
+    filterIncomingPaymentRequests(
+      clientRequests,
+      { senderQuery: "leila.santos@example.test" },
+      friends
+    ).map((r) => r.id),
+    ["r2"]
+  );
+  assert.deepEqual(
+    filterIncomingPaymentRequests(clientRequests, { senderQuery: "+46 70" }, friends).map((r) => r.id),
+    ["r3"]
+  );
+  assert.deepEqual(
+    filterIncomingPaymentRequests(clientRequests, { senderQuery: "snack" }, friends).map((r) => r.id),
+    ["r4"]
+  );
+  assert.deepEqual(
+    filterIncomingPaymentRequests(clientRequests, { senderQuery: "USD" }, friends).map((r) => r.id),
+    ["r2"]
+  );
+  assert.deepEqual(
+    filterIncomingPaymentRequests(clientRequests, { senderQuery: "22.5" }, friends).map((r) => r.id),
+    ["r2"]
+  );
+  assert.deepEqual(
+    filterIncomingPaymentRequests(clientRequests, { senderQuery: "2026-05-05" }, friends).map(
+      (r) => r.id
+    ),
+    ["r1"]
+  );
+
+  assert.deepEqual(
+    filterIncomingPaymentRequests(
+      clientRequests,
+      { status: "pending", senderQuery: "Mika" },
+      friends
+    ).map((r) => r.id),
+    ["r1", "r4"]
+  );
+  assert.deepEqual(
+    filterIncomingPaymentRequests(
+      clientRequests,
+      { status: "declined", senderQuery: "Mika" },
+      friends
+    ),
+    []
+  );
+});
+
+test("getIncomingPaymentRequest returns recipient-scoped row with derived fields", async () => {
+  const { supabase } = createReadUpdateSupabaseMock(incomingRows);
+  const result = await getIncomingPaymentRequest("req_in_recent", {
+    supabase,
+    now: incomingNow
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.statusCode, 200);
+  assert.equal(result.body.paymentRequest.id, "req_in_recent");
+  assert.equal(result.body.paymentRequest.expiresAt, "2026-05-12T12:00:00.000Z");
+  assert.equal(result.body.paymentRequest.daysRemaining, 5);
+});
+
+test("getIncomingPaymentRequest returns request_not_found for outgoing rows or unknown ids", async () => {
+  const outgoing = await getIncomingPaymentRequest("req_outgoing", {
+    supabase: createReadUpdateSupabaseMock(incomingRows).supabase,
+    now: incomingNow
+  });
+  assert.equal(outgoing.ok, false);
+  assert.equal(outgoing.statusCode, 404);
+  assert.equal(outgoing.body.error.code, "request_not_found");
+
+  const missing = await getIncomingPaymentRequest("nope", {
+    supabase: createReadUpdateSupabaseMock(incomingRows).supabase,
+    now: incomingNow
+  });
+  assert.equal(missing.statusCode, 404);
+  assert.equal(missing.body.error.code, "request_not_found");
+});
+
+test("getIncomingPaymentRequest performs read-time expiry promotion at boundary", async () => {
+  const rows = [
+    {
+      id: "req_in_boundary",
+      sender_id: "friend_001",
+      recipient_id: "demo_user_001",
+      receiver_account_id: "acct_eur_main",
+      amount: 15,
+      currency: "EUR",
+      note: "Tea",
+      status: "pending",
+      hash: "hash_in_boundary",
+      shareable_link: "/r/hash_in_boundary",
+      created_at: "2026-04-29T13:00:00.000Z",
+      updated_at: "2026-04-29T13:00:00.000Z"
+    }
+  ];
+
+  const { supabase } = createReadUpdateSupabaseMock(rows);
+  const result = await getIncomingPaymentRequest("req_in_boundary", {
+    supabase,
+    now: incomingNow
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.body.paymentRequest.status, "expired");
+  assert.equal(result.body.paymentRequest.updatedAt, "2026-05-06T13:00:00.000Z");
+  assert.equal(result.body.paymentRequest.daysRemaining, 0);
+});
+
+test("getIncomingPaymentRequest returns incoming_detail_failed on Supabase select error", async () => {
+  const { supabase } = createReadUpdateSupabaseMock(incomingRows, {
+    selectError: { message: "boom" }
+  });
+  const result = await getIncomingPaymentRequest("req_in_recent", {
+    supabase,
+    now: incomingNow
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.statusCode, 500);
+  assert.equal(result.body.error.code, "incoming_detail_failed");
+});
+
+test("declineIncomingPaymentRequest requires confirm true", async () => {
+  const { supabase } = createReadUpdateSupabaseMock(incomingRows);
+  const result = await declineIncomingPaymentRequest("req_in_recent", {}, {
+    supabase,
+    now: incomingNow
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.statusCode, 400);
+  assert.equal(result.body.error.code, "decline_confirmation_required");
+});
+
+test("declineIncomingPaymentRequest rejects non-recipient rows with request_not_found", async () => {
+  const { supabase } = createReadUpdateSupabaseMock(incomingRows);
+  const result = await declineIncomingPaymentRequest(
+    "req_outgoing",
+    { confirm: true },
+    { supabase, now: incomingNow }
+  );
+  assert.equal(result.statusCode, 404);
+  assert.equal(result.body.error.code, "request_not_found");
+});
+
+test("declineIncomingPaymentRequest returns decline_not_allowed for already-declined or withdrawn rows", async () => {
+  const declinedRes = await declineIncomingPaymentRequest(
+    "req_in_old_declined",
+    { confirm: true },
+    {
+      supabase: createReadUpdateSupabaseMock(incomingRows).supabase,
+      now: incomingNow
+    }
+  );
+  assert.equal(declinedRes.statusCode, 409);
+  assert.equal(declinedRes.body.error.code, "decline_not_allowed");
+
+  const withdrawnRows = [
+    {
+      ...incomingRows[0],
+      id: "req_in_withdrawn",
+      status: "withdrawn"
+    }
+  ];
+  const withdrawnRes = await declineIncomingPaymentRequest(
+    "req_in_withdrawn",
+    { confirm: true },
+    {
+      supabase: createReadUpdateSupabaseMock(withdrawnRows).supabase,
+      now: incomingNow
+    }
+  );
+  assert.equal(withdrawnRes.statusCode, 409);
+  assert.equal(withdrawnRes.body.error.code, "decline_not_allowed");
+});
+
+test("declineIncomingPaymentRequest returns 409 with promoted paymentRequest when row was just expired", async () => {
+  const rows = [
+    {
+      id: "req_in_just_expired",
+      sender_id: "friend_001",
+      recipient_id: "demo_user_001",
+      receiver_account_id: "acct_eur_main",
+      amount: 15,
+      currency: "EUR",
+      note: "Tea",
+      status: "pending",
+      hash: "hash_in_just_expired",
+      shareable_link: "/r/hash_in_just_expired",
+      created_at: "2026-04-29T13:00:00.000Z",
+      updated_at: "2026-04-29T13:00:00.000Z"
+    }
+  ];
+
+  const { supabase } = createReadUpdateSupabaseMock(rows);
+  const result = await declineIncomingPaymentRequest(
+    "req_in_just_expired",
+    { confirm: true },
+    { supabase, now: incomingNow }
+  );
+
+  assert.equal(result.ok, false);
+  assert.equal(result.statusCode, 409);
+  assert.equal(result.body.error.code, "decline_not_allowed");
+  assert.ok(result.body.paymentRequest, "expected paymentRequest in body");
+  assert.equal(result.body.paymentRequest.status, "expired");
+  assert.equal(result.body.paymentRequest.daysRemaining, 0);
+});
+
+test("declineIncomingPaymentRequest returns request_update_failed when Supabase update errors", async () => {
+  const { supabase } = createReadUpdateSupabaseMock(incomingRows, {
+    updateError: { message: "update boom" }
+  });
+  const result = await declineIncomingPaymentRequest(
+    "req_in_recent",
+    { confirm: true },
+    { supabase, now: incomingNow }
+  );
+
+  assert.equal(result.ok, false);
+  assert.equal(result.statusCode, 500);
+  assert.equal(result.body.error.code, "request_update_failed");
+});
+
+test("declineIncomingPaymentRequest success transitions pending row to declined with derived fields", async () => {
+  const { supabase, calls } = createReadUpdateSupabaseMock(incomingRows);
+  const declineNow = () => new Date("2026-05-06T13:30:00.000Z");
+  const result = await declineIncomingPaymentRequest(
+    "req_in_recent",
+    { confirm: true },
+    { supabase, now: declineNow }
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(result.statusCode, 200);
+  assert.equal(result.body.paymentRequest.status, "declined");
+  assert.equal(result.body.paymentRequest.updatedAt, "2026-05-06T13:30:00.000Z");
+  assert.equal(result.body.paymentRequest.expiresAt, "2026-05-12T12:00:00.000Z");
+  assert.equal(result.body.paymentRequest.daysRemaining, 0);
+
+  const updateCall = calls.find(
+    (call) => call.operation === "update" && call.updatePayload?.status === "declined"
+  );
+  assert.ok(updateCall, "expected a declined update call");
+  assert.deepEqual(updateCall.updatePayload, {
+    status: "declined",
+    updated_at: "2026-05-06T13:30:00.000Z"
+  });
+  assert.deepEqual(updateCall.filters, [
+    { field: "id", value: "req_in_recent" },
+    { field: "recipient_id", value: "demo_user_001" },
+    { field: "status", value: "pending" }
+  ]);
+});

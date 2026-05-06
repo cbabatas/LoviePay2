@@ -4,7 +4,7 @@ export const demoUser = {
   id: "demo_user_001",
   fullName: "Ayla Demir",
   email: "ayla.demo@loviepay.test",
-  password: "demo-pass-001",
+  password: "1234",
   customerNumber: "LP-204813",
   avatarLabel: "AD",
   receiverAccounts: [
@@ -23,7 +23,8 @@ export const demoUser = {
       label: "Family GBP",
       currency: "GBP"
     }
-  ]
+  ],
+  friends: ["friend_001", "friend_002", "friend_003", "friend_004", "friend_005", "friend_006", "friend_007"]
 };
 
 export const friends = [
@@ -31,29 +32,107 @@ export const friends = [
     id: "friend_001",
     fullName: "Mika Korhonen",
     email: "mika.korhonen@example.test",
+    password: "1234",
     phone: "+358 40 123 4567",
-    active: true
+    active: true,
+    customerNumber: "LP-319042",
+    avatarLabel: "MK",
+    receiverAccounts: [
+      { id: "friend_001_acct_eur", label: "Everyday EUR", currency: "EUR" },
+      { id: "friend_001_acct_usd", label: "Travel USD", currency: "USD" }
+    ],
+    friends: ["demo_user_001", "friend_002", "friend_005"]
   },
   {
     id: "friend_002",
     fullName: "Leila Santos",
     email: "leila.santos@example.test",
+    password: "1234",
     phone: "+358 45 222 1188",
-    active: true
+    active: true,
+    customerNumber: "LP-472815",
+    avatarLabel: "LS",
+    receiverAccounts: [
+      { id: "friend_002_acct_eur", label: "Main EUR", currency: "EUR" },
+      { id: "friend_002_acct_gbp", label: "GBP Savings", currency: "GBP" }
+    ],
+    friends: ["friend_001", "friend_003", "friend_006"]
   },
   {
     id: "friend_003",
     fullName: "Jonas Berg",
     email: "jonas.berg@example.test",
+    password: "1234",
     phone: "+46 70 555 0199",
-    active: true
+    active: true,
+    customerNumber: "LP-538290",
+    avatarLabel: "JB",
+    receiverAccounts: [
+      { id: "friend_003_acct_eur", label: "Personal EUR", currency: "EUR" },
+      { id: "friend_003_acct_usd", label: "USD Account", currency: "USD" },
+      { id: "friend_003_acct_gbp", label: "Family GBP", currency: "GBP" }
+    ],
+    friends: ["demo_user_001", "friend_002", "friend_007"]
   },
   {
     id: "friend_004",
     fullName: "Noora Laine",
     email: "noora.laine@example.test",
+    password: "1234",
     phone: "+358 50 911 2233",
-    active: false
+    active: false,
+    customerNumber: "LP-601734",
+    avatarLabel: "NL",
+    receiverAccounts: [
+      { id: "friend_004_acct_eur", label: "Main EUR", currency: "EUR" }
+    ],
+    friends: ["friend_005", "friend_006"]
+  },
+  {
+    id: "friend_005",
+    fullName: "Pekka Aalto",
+    email: "pekka.aalto@example.test",
+    password: "1234",
+    phone: "+358 40 777 5544",
+    active: true,
+    customerNumber: "LP-714561",
+    avatarLabel: "PA",
+    receiverAccounts: [
+      { id: "friend_005_acct_eur", label: "Everyday EUR", currency: "EUR" },
+      { id: "friend_005_acct_usd", label: "Travel USD", currency: "USD" }
+    ],
+    friends: ["demo_user_001", "friend_001", "friend_004"]
+  },
+  {
+    id: "friend_006",
+    fullName: "Sara Lindqvist",
+    email: "sara.lindqvist@example.test",
+    password: "1234",
+    phone: "+46 73 333 8899",
+    active: true,
+    customerNumber: "LP-823407",
+    avatarLabel: "SL",
+    receiverAccounts: [
+      { id: "friend_006_acct_eur", label: "Main EUR", currency: "EUR" },
+      { id: "friend_006_acct_gbp", label: "GBP Account", currency: "GBP" }
+    ],
+    friends: ["friend_002", "friend_004", "friend_007"]
+  },
+  {
+    id: "friend_007",
+    fullName: "Tomas Virtanen",
+    email: "tomas.virtanen@example.test",
+    password: "1234",
+    phone: "+358 50 444 1212",
+    active: true,
+    customerNumber: "LP-937182",
+    avatarLabel: "TV",
+    receiverAccounts: [
+      { id: "friend_007_acct_eur", label: "Personal EUR", currency: "EUR" },
+      { id: "friend_007_acct_usd", label: "USD Savings", currency: "USD" },
+      { id: "friend_007_acct_gbp", label: "GBP Account", currency: "GBP" }
+    ],
+    friends: ["demo_user_001", "friend_003", "friend_006"]
   }
 ];
 
@@ -107,11 +186,54 @@ export const paymentRequests = [
     receiverAccountId: "acct_eur_main",
     amount: 88,
     currency: "EUR",
-    note: "Incoming record excluded from outgoing management",
+    note: "Concert ticket",
     status: "pending",
     hash: "hash_incoming_001",
     shareableLink: "/r/hash_incoming_001",
     createdAt: "2026-05-06T13:00:00.000Z",
     updatedAt: "2026-05-06T13:00:00.000Z"
+  },
+  {
+    id: "req_incoming_002",
+    senderId: "friend_005",
+    recipientId: demoUser.id,
+    receiverAccountId: "acct_usd_travel",
+    amount: 32.4,
+    currency: "USD",
+    note: "Birthday gift split",
+    status: "declined",
+    hash: "hash_incoming_002",
+    shareableLink: "/r/hash_incoming_002",
+    createdAt: "2026-05-03T09:00:00.000Z",
+    updatedAt: "2026-05-03T11:30:00.000Z"
+  },
+  {
+    id: "req_incoming_003",
+    senderId: "friend_006",
+    recipientId: demoUser.id,
+    receiverAccountId: "acct_gbp_family",
+    amount: 56,
+    currency: "GBP",
+    note: "Boundary case (exactly 7 days)",
+    status: "pending",
+    hash: "hash_incoming_003",
+    shareableLink: "/r/hash_incoming_003",
+    createdAt: "2026-04-29T13:00:00.000Z",
+    updatedAt: "2026-04-29T13:00:00.000Z"
+  },
+  {
+    id: "req_incoming_004",
+    senderId: "friend_007",
+    recipientId: demoUser.id,
+    receiverAccountId: "acct_eur_main",
+    amount: 145.75,
+    currency: "EUR",
+    note: "Old shared dinner",
+    status: "pending",
+    hash: "hash_incoming_004",
+    shareableLink: "/r/hash_incoming_004",
+    createdAt: "2026-04-15T10:00:00.000Z",
+    updatedAt: "2026-04-15T10:00:00.000Z"
   }
 ];
+

@@ -208,7 +208,8 @@ test.describe("outgoing payment requests desktop flow", () => {
     await expectRequestRowVisible(page, "Leila Santos", outgoingFixtures[1]);
     await expectRequestRowVisible(page, "Jonas Berg", outgoingFixtures[2]);
     await expect(page.getByText("Ayla Demir", { exact: true })).toHaveCount(1);
-    await expect(page.getByText("Incoming")).toHaveCount(0);
+    // Outgoing rows must not surface incoming-only marker text.
+    await expect(page.getByText("Incoming record")).toHaveCount(0);
   });
 
   test("filters by status and recipient, shows no results, then clears filters", async ({ page }) => {

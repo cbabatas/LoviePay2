@@ -1,11 +1,18 @@
 import { demoUser, friends, paymentRequests } from "./mock-data.js";
+
+const ALL_USERS = [demoUser, ...friends];
 import {
   ERROR_MESSAGES,
+  canDeclineIncoming,
   canWithdrawPaymentRequest,
+  computeDaysRemaining,
+  computeExpiresAt,
   currencySymbol,
   deriveCurrency,
+  filterIncomingPaymentRequests,
   filterOutgoingPaymentRequests,
   findRecipientDisplay,
+  findSenderDisplay,
   formatAmount,
   formatPlainAmount,
   formatRequestDate,
@@ -16,6 +23,9 @@ import {
 } from "./payment-request.js";
 import {
   createPaymentRequest,
+  declineIncomingPaymentRequest,
+  fetchIncomingPaymentRequest,
+  fetchIncomingPaymentRequests,
   getOutgoingPaymentRequest,
   listOutgoingPaymentRequests,
   withdrawPaymentRequest
@@ -23,10 +33,17 @@ import {
 
 const app = document.querySelector("#app");
 const SESSION_KEY = "loviepay.demoSignedIn";
+const SESSION_USER_KEY = "loviepay.demoUserId";
 const NOTE_LIMIT = 100;
+
+function resolveSessionUser() {
+  const id = sessionStorage.getItem(SESSION_USER_KEY);
+  return ALL_USERS.find((u) => u.id === id) ?? null;
+}
 
 const state = {
   signedIn: sessionStorage.getItem(SESSION_KEY) === "true",
+  currentUser: resolveSessionUser(),
   signInError: "",
   view: "create",
   detailId: "",
@@ -53,6 +70,21 @@ const state = {
     withdraw: null,
     withdrawing: false,
     withdrawError: "",
+    successMessage: ""
+  },
+  incoming: {
+    loaded: false,
+    loading: false,
+    error: "",
+    items: [],
+    status: "",
+    senderQuery: "",
+    detail: null,
+    detailLoading: false,
+    detailError: "",
+    decline: null,
+    declining: false,
+    declineError: "",
     successMessage: ""
   }
 };
@@ -110,12 +142,48 @@ function resetOutgoingTransient() {
   state.outgoing.withdrawing = false;
 }
 
+function resetIncomingTransient() {
+  state.incoming.detail = null;
+  state.incoming.detailError = "";
+  state.incoming.detailLoading = false;
+  state.incoming.decline = null;
+  state.incoming.declineError = "";
+  state.incoming.declining = false;
+}
+
+function resetListsState() {
+  state.outgoing.loaded = false;
+  state.outgoing.items = [];
+  state.outgoing.error = "";
+  state.outgoing.status = "";
+  state.outgoing.recipientQuery = "";
+  state.outgoing.successMessage = "";
+  state.incoming.loaded = false;
+  state.incoming.items = [];
+  state.incoming.error = "";
+  state.incoming.status = "";
+  state.incoming.senderQuery = "";
+  state.incoming.successMessage = "";
+}
+
+function shapeIncomingForDisplay(request, now = new Date()) {
+  if (!request) return request;
+  const expiresAt = request.expiresAt ?? computeExpiresAt(request.createdAt)?.toISOString() ?? null;
+  const daysRemaining =
+    request.daysRemaining !== undefined
+      ? request.daysRemaining
+      : request.status === "pending"
+        ? computeDaysRemaining(expiresAt, now)
+        : 0;
+  return { ...request, expiresAt, daysRemaining };
+}
+
 function requiredLabel(text) {
   return `${escapeHtml(text)} <span class="required-marker" aria-hidden="true">*</span>`;
 }
 
 function render() {
-  if (!state.signedIn) {
+  if (!state.signedIn || !state.currentUser) {
     app.innerHTML = renderSignIn();
     bindSignIn();
     return;
@@ -157,21 +225,22 @@ function renderWorkspace() {
   return `
     <div class="app-shell">
       <aside class="sidebar" aria-label="Demo user">
-        <div class="avatar" aria-hidden="true">${escapeHtml(demoUser.avatarLabel)}</div>
+        <div class="avatar" aria-hidden="true">${escapeHtml(state.currentUser.avatarLabel)}</div>
         <div>
-          <p class="sidebar-name">${escapeHtml(demoUser.fullName)}</p>
-          <p class="sidebar-meta">${escapeHtml(demoUser.customerNumber)}</p>
-          <p class="sidebar-email">${escapeHtml(demoUser.email)}</p>
+          <p class="sidebar-name">${escapeHtml(state.currentUser.fullName)}</p>
+          <p class="sidebar-meta">${escapeHtml(state.currentUser.customerNumber)}</p>
+          <p class="sidebar-email">${escapeHtml(state.currentUser.email)}</p>
         </div>
         <nav class="sidebar-nav" aria-label="Workspace">
           <a href="#" aria-current="page">Payment request</a>
         </nav>
+        <button type="button" class="secondary-action" id="sign-out">Sign out</button>
       </aside>
 
       <main class="workspace" aria-labelledby="page-title">
         <header class="workspace-header">
           <div>
-            <p class="eyebrow">${state.view === "create" ? "Create request" : "Outgoing requests"}</p>
+            <p class="eyebrow">${eyebrowForView()}</p>
             <h1 id="page-title">Payment request</h1>
           </div>
           <button type="button" class="primary-action" id="open-create-request">Create request</button>
@@ -179,13 +248,17 @@ function renderWorkspace() {
 
         <div class="payment-tabs" role="tablist" aria-label="Payment request views">
           <button type="button" role="tab" id="create-tab" aria-selected="${state.view === "create"}" class="tab-action ${state.view === "create" ? "is-active" : ""}">Create</button>
-          <button type="button" role="tab" id="outgoing-tab" aria-selected="${state.view !== "create"}" class="tab-action ${state.view !== "create" ? "is-active" : ""}">Outgoing</button>
+          <button type="button" role="tab" id="outgoing-tab" aria-selected="${state.view === "outgoing" || state.view === "detail"}" class="tab-action ${state.view === "outgoing" || state.view === "detail" ? "is-active" : ""}">Outgoing</button>
+          <button type="button" role="tab" id="incoming-tab" aria-selected="${state.view === "incoming" || state.view === "incoming-detail"}" class="tab-action ${state.view === "incoming" || state.view === "incoming-detail" ? "is-active" : ""}">Incoming</button>
         </div>
 
         ${state.view === "create" ? renderCreateView() : ""}
         ${state.view === "outgoing" ? renderOutgoingView() : ""}
         ${state.view === "detail" ? renderOutgoingDetailView() : ""}
+        ${state.view === "incoming" ? renderIncomingView() : ""}
+        ${state.view === "incoming-detail" ? renderIncomingDetailView() : ""}
         ${renderWithdrawDialog()}
+        ${renderDeclineDialog()}
       </main>
     </div>
   `;
@@ -557,6 +630,215 @@ function renderOutgoingDetailView() {
   `;
 }
 
+function eyebrowForView() {
+  if (state.view === "create") return "Create request";
+  if (state.view === "outgoing" || state.view === "detail") return "Outgoing requests";
+  if (state.view === "incoming" || state.view === "incoming-detail") return "Incoming requests";
+  return "Payment request";
+}
+
+function filteredIncomingItems() {
+  return filterIncomingPaymentRequests(state.incoming.items, {
+    status: state.incoming.status,
+    senderQuery: state.incoming.senderQuery
+  });
+}
+
+function renderDaysRemainingLabel(request) {
+  if (request.status !== "pending") return "expired";
+  const days = request.daysRemaining ?? 0;
+  if (days <= 0) return "expires today";
+  if (days === 1) return "1 day left";
+  return `${days} days left`;
+}
+
+function renderIncomingView() {
+  if (state.incoming.loading) {
+    return `<section class="incoming-panel" aria-live="polite"><p class="empty-state">Loading incoming requests...</p></section>`;
+  }
+
+  if (state.incoming.error) {
+    return `
+      <section class="incoming-panel">
+        <p class="banner banner-error" role="alert">${escapeHtml(state.incoming.error)}</p>
+        <button type="button" class="secondary-action" id="retry-incoming">Retry</button>
+      </section>
+    `;
+  }
+
+  const rows = filteredIncomingItems();
+  const hasFilters = Boolean(state.incoming.status || state.incoming.senderQuery.trim());
+
+  return `
+    <section class="incoming-panel outgoing-panel" aria-labelledby="incoming-title">
+      <div class="section-heading">
+        <div>
+          <h2 id="incoming-title">Incoming requests</h2>
+          <p class="muted">Requests addressed to ${escapeHtml(demoUser.fullName)}.</p>
+        </div>
+        ${state.incoming.successMessage ? `<p class="banner banner-success" role="status">${escapeHtml(state.incoming.successMessage)}</p>` : ""}
+      </div>
+
+      <div class="filter-bar">
+        <label for="incoming-status">
+          <span>Status</span>
+          <select id="incoming-status">
+            <option value="">All statuses</option>
+            <option value="pending" ${state.incoming.status === "pending" ? "selected" : ""}>Pending</option>
+            <option value="declined" ${state.incoming.status === "declined" ? "selected" : ""}>Declined</option>
+            <option value="expired" ${state.incoming.status === "expired" ? "selected" : ""}>Expired</option>
+          </select>
+        </label>
+        <label for="incoming-sender-query">
+          <span>Sender</span>
+          <input id="incoming-sender-query" type="search" value="${escapeHtml(state.incoming.senderQuery)}" placeholder="Search sender details" />
+        </label>
+        <button type="button" class="secondary-action" id="clear-incoming-filters" ${hasFilters ? "" : "disabled"}>Clear filters</button>
+      </div>
+
+      ${renderIncomingRows(rows, hasFilters)}
+    </section>
+  `;
+}
+
+function renderIncomingRows(rows, hasFilters) {
+  if (state.incoming.items.length === 0) {
+    return `
+      <div class="empty-block" role="status">
+        <h3>No incoming requests</h3>
+        <p class="muted">Requests sent to you will appear here.</p>
+      </div>
+    `;
+  }
+
+  if (rows.length === 0 && hasFilters) {
+    return `
+      <div class="empty-block" role="status">
+        <h3>No matching incoming requests</h3>
+        <p class="muted">Clear filters or search for another sender.</p>
+      </div>
+    `;
+  }
+
+  return `
+    <ul class="incoming-list outgoing-list" aria-label="Incoming requests">
+      ${rows.map(renderIncomingRow).join("")}
+    </ul>
+  `;
+}
+
+function renderIncomingRow(request) {
+  const sender = findSenderDisplay(request.senderId);
+  const declinable = canDeclineIncoming(request);
+  const daysLabel = renderDaysRemainingLabel(request);
+
+  return `
+    <li class="outgoing-row incoming-row" role="row" aria-label="${escapeHtml(`${sender.fullName} ${formatAmount(request.amount, request.currency)} ${request.currency} ${formatStatusLabel(request.status)} ${formatRequestDate(request.createdAt)}`)}">
+      <button type="button" class="row-main" data-open-incoming-detail="${escapeHtml(request.id)}">
+        <span class="row-amount">${escapeHtml(formatAmount(request.amount, request.currency))} ${escapeHtml(request.currency)}</span>
+        <span>
+          <strong>${escapeHtml(sender.fullName)}</strong>
+          <small>${escapeHtml([sender.email, sender.phone].filter(Boolean).join(" · "))}</small>
+        </span>
+        <span class="status-label status-${escapeHtml(request.status)}">${escapeHtml(formatStatusLabel(request.status))}</span>
+        <span>${escapeHtml(formatRequestDate(request.createdAt))}</span>
+        <span class="days-remaining">${escapeHtml(daysLabel)}</span>
+      </button>
+      <div class="row-actions">
+        ${
+          declinable
+            ? `<button type="button" class="secondary-action danger-action" data-decline="${escapeHtml(request.id)}" data-source="list">Decline</button>`
+            : `<p class="ineligible-message">${escapeHtml(ERROR_MESSAGES.unavailable_decline_action)}</p>`
+        }
+      </div>
+    </li>
+  `;
+}
+
+function renderIncomingDetailView() {
+  if (state.incoming.detailLoading) {
+    return `<section class="incoming-panel outgoing-panel" aria-live="polite"><button type="button" class="secondary-action" id="back-to-incoming">Back</button><p class="empty-state">Loading request details...</p></section>`;
+  }
+
+  if (state.incoming.detailError || !state.incoming.detail) {
+    return `
+      <section class="incoming-panel outgoing-panel detail-panel">
+        <button type="button" class="secondary-action" id="back-to-incoming">Back</button>
+        <div class="empty-block" role="alert">
+          <h2>Incoming request unavailable</h2>
+          <p>${escapeHtml(unavailableRequestMessage(state.incoming.detailError))}</p>
+        </div>
+      </section>
+    `;
+  }
+
+  const request = state.incoming.detail;
+  const sender = findSenderDisplay(request.senderId);
+  const declinable = canDeclineIncoming(request);
+  const daysLabel = renderDaysRemainingLabel(request);
+
+  return `
+    <section class="incoming-panel outgoing-panel detail-panel" aria-labelledby="incoming-detail-title">
+      <button type="button" class="secondary-action" id="back-to-incoming">Back</button>
+      ${state.incoming.successMessage ? `<p class="banner banner-success" role="status">${escapeHtml(state.incoming.successMessage)}</p>` : ""}
+      <div class="detail-header">
+        <div>
+          <p class="eyebrow">Incoming request</p>
+          <h2 id="incoming-detail-title">${escapeHtml(formatAmount(request.amount, request.currency))}</h2>
+          <p class="muted">From ${escapeHtml(sender.fullName)}</p>
+        </div>
+        <span class="status-label status-${escapeHtml(request.status)}">${escapeHtml(formatStatusLabel(request.status))}</span>
+      </div>
+      <dl class="detail-grid">
+        <div><dt>Sender</dt><dd>${escapeHtml(sender.fullName)}</dd></div>
+        <div><dt>Sender email</dt><dd>${escapeHtml(sender.email || "Unavailable")}</dd></div>
+        <div><dt>Request date</dt><dd>${escapeHtml(formatRequestDate(request.createdAt))}</dd></div>
+        <div><dt>Expires</dt><dd>${escapeHtml(formatRequestDate(request.expiresAt))}</dd></div>
+        <div><dt>Days remaining</dt><dd>${escapeHtml(daysLabel)}</dd></div>
+        <div><dt>Receiver account</dt><dd>${escapeHtml(receiverAccountLabel(request.receiverAccountId))}</dd></div>
+        <div><dt>Note</dt><dd>${escapeHtml(request.note || "No note")}</dd></div>
+        <div><dt>Shareable link</dt><dd><a href="${escapeHtml(request.shareableLink)}">${escapeHtml(request.shareableLink)}</a></dd></div>
+      </dl>
+      <div class="detail-actions">
+        ${
+          declinable
+            ? `<button type="button" class="primary-action danger-primary" data-decline="${escapeHtml(request.id)}" data-source="detail">Decline</button>`
+            : `<p class="ineligible-message">${escapeHtml(ERROR_MESSAGES.unavailable_decline_action)}</p>`
+        }
+      </div>
+    </section>
+  `;
+}
+
+function renderDeclineDialog() {
+  const dialog = state.incoming.decline;
+  if (!dialog) return "";
+  const request =
+    state.incoming.items.find((item) => item.id === dialog.requestId) ??
+    state.incoming.detail;
+  const sender = findSenderDisplay(request?.senderId);
+
+  return `
+    <div class="modal-backdrop" role="presentation" data-decline-backdrop>
+      <section class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="decline-title">
+        <h2 id="decline-title">Decline request?</h2>
+        <p>Confirm decline for the request from ${escapeHtml(sender.fullName)}. This changes the request status to declined.</p>
+        ${
+          state.incoming.declineError
+            ? `<p class="banner banner-error" role="alert">${escapeHtml(state.incoming.declineError)}</p>`
+            : ""
+        }
+        <div class="dialog-actions">
+          <button type="button" class="secondary-action" id="cancel-decline">Cancel</button>
+          <button type="button" class="primary-action danger-primary" id="confirm-decline" ${state.incoming.declining ? "disabled" : ""}>
+            ${state.incoming.declining ? "Declining..." : "Confirm decline"}
+          </button>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
 function renderWithdrawDialog() {
   const dialog = state.outgoing.withdraw;
   if (!dialog) return "";
@@ -593,14 +875,18 @@ function bindSignIn() {
     const email = String(form.get("email") ?? "").trim();
     const password = String(form.get("password") ?? "");
 
-    if (email === demoUser.email && password === demoUser.password) {
+    const matched = ALL_USERS.find((u) => u.email === email && u.password === password);
+    if (matched) {
       state.signedIn = true;
+      state.currentUser = matched;
       sessionStorage.setItem(SESSION_KEY, "true");
+      sessionStorage.setItem(SESSION_USER_KEY, matched.id);
       state.signInError = "";
       state.view = "create";
       resetRequestState();
+      resetListsState();
     } else {
-      state.signInError = "Use the demo email and password for this workspace.";
+      state.signInError = "Invalid email or password.";
     }
 
     render();
@@ -608,11 +894,23 @@ function bindSignIn() {
 }
 
 function bindWorkspace() {
+  document.querySelector("#sign-out").addEventListener("click", () => {
+    state.signedIn = false;
+    state.currentUser = null;
+    state.signInError = "";
+    sessionStorage.removeItem(SESSION_KEY);
+    sessionStorage.removeItem(SESSION_USER_KEY);
+    resetRequestState();
+    resetListsState();
+    render();
+  });
+
   document.querySelector(".sidebar-nav a").addEventListener("click", (event) => {
     event.preventDefault();
     state.view = "create";
     resetRequestState();
     resetOutgoingTransient();
+    resetIncomingTransient();
     render();
   });
 
@@ -620,12 +918,14 @@ function bindWorkspace() {
     state.view = "create";
     resetRequestState();
     resetOutgoingTransient();
+    resetIncomingTransient();
     render();
   });
 
   document.querySelector("#create-tab").addEventListener("click", () => {
     state.view = "create";
     resetOutgoingTransient();
+    resetIncomingTransient();
     render();
   });
 
@@ -633,8 +933,13 @@ function bindWorkspace() {
     openOutgoingList();
   });
 
+  document.querySelector("#incoming-tab").addEventListener("click", () => {
+    openIncomingList();
+  });
+
   bindCreateView();
   bindOutgoingView();
+  bindIncomingView();
 }
 
 function bindCreateView() {
@@ -900,6 +1205,172 @@ async function submitRequest(event) {
     state.isSubmitting = false;
     render();
     document.querySelector("#success-state")?.focus();
+  }
+}
+
+function bindIncomingView() {
+  if (state.view === "incoming") {
+    document.querySelector("#retry-incoming")?.addEventListener("click", () => loadIncomingRequests(true));
+    document.querySelector("#incoming-status")?.addEventListener("change", (event) => {
+      state.incoming.status = event.target.value;
+      render();
+    });
+    document.querySelector("#incoming-sender-query")?.addEventListener("input", (event) => {
+      state.incoming.senderQuery = event.target.value;
+      render();
+      const input = document.querySelector("#incoming-sender-query");
+      input.focus();
+      input.setSelectionRange(state.incoming.senderQuery.length, state.incoming.senderQuery.length);
+    });
+    document.querySelector("#clear-incoming-filters")?.addEventListener("click", () => {
+      state.incoming.status = "";
+      state.incoming.senderQuery = "";
+      render();
+    });
+    document.querySelectorAll("[data-open-incoming-detail]").forEach((button) => {
+      button.addEventListener("click", () => openIncomingDetail(button.dataset.openIncomingDetail));
+    });
+  }
+
+  if (state.view === "incoming-detail") {
+    document.querySelector("#back-to-incoming")?.addEventListener("click", () => openIncomingList(false));
+  }
+
+  document.querySelectorAll("[data-decline]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.incoming.decline = {
+        requestId: button.dataset.decline,
+        source: button.dataset.source
+      };
+      state.incoming.declineError = "";
+      render();
+    });
+  });
+
+  document.querySelector("#cancel-decline")?.addEventListener("click", () => {
+    closeDeclineDialog();
+  });
+
+  document.querySelector("[data-decline-backdrop]")?.addEventListener("click", (event) => {
+    if (event.target === event.currentTarget) closeDeclineDialog();
+  });
+
+  if (state.incoming.decline) {
+    document.addEventListener("keydown", handleDeclineKeydown, { once: true });
+  }
+
+  document.querySelector("#confirm-decline")?.addEventListener("click", confirmDecline);
+}
+
+function handleDeclineKeydown(event) {
+  if (event.key === "Escape" && state.incoming.decline) {
+    closeDeclineDialog();
+  }
+}
+
+function closeDeclineDialog() {
+  state.incoming.decline = null;
+  state.incoming.declineError = "";
+  render();
+}
+
+async function openIncomingList(reload = false) {
+  const cameFromDetail = state.view === "incoming-detail";
+  state.view = "incoming";
+  resetIncomingTransient();
+  resetOutgoingTransient();
+  render();
+  if (reload || (!state.incoming.loaded && !cameFromDetail)) {
+    await loadIncomingRequests(reload);
+  } else if (!state.incoming.loaded) {
+    await loadIncomingRequests(false);
+  }
+}
+
+async function loadIncomingRequests(force = false) {
+  if (state.incoming.loading) return;
+  if (state.incoming.loaded && !force) return;
+
+  state.incoming.loading = true;
+  state.incoming.error = "";
+  state.incoming.successMessage = "";
+  render();
+
+  try {
+    const items = await fetchIncomingPaymentRequests();
+    state.incoming.items = items.map((request) => shapeIncomingForDisplay(request));
+    state.incoming.loaded = true;
+  } catch (error) {
+    state.incoming.error = error.message || ERROR_MESSAGES.incoming_list_failed;
+    if (!state.incoming.loaded) {
+      const fallback = paymentRequests
+        .filter((request) => request.recipientId === demoUser.id)
+        .map((request) => shapeIncomingForDisplay(request));
+      state.incoming.items = fallback;
+      state.incoming.error = "";
+      state.incoming.loaded = true;
+    }
+  } finally {
+    state.incoming.loading = false;
+    render();
+  }
+}
+
+async function openIncomingDetail(id) {
+  state.view = "incoming-detail";
+  state.incoming.detail = null;
+  state.incoming.detailError = "";
+  state.incoming.detailLoading = true;
+  state.incoming.successMessage = "";
+  render();
+
+  try {
+    const detail = await fetchIncomingPaymentRequest(id);
+    state.incoming.detail = shapeIncomingForDisplay(detail);
+  } catch (error) {
+    const fallback = state.incoming.items.find((item) => item.id === id);
+    if (fallback) {
+      state.incoming.detail = fallback;
+    } else {
+      state.incoming.detailError = error.code || "request_not_found";
+    }
+  } finally {
+    state.incoming.detailLoading = false;
+    render();
+  }
+}
+
+function mergeUpdatedIncomingRequest(updatedRequest) {
+  const shaped = shapeIncomingForDisplay(updatedRequest);
+  state.incoming.items = state.incoming.items.map((item) =>
+    item.id === shaped.id ? shaped : item
+  );
+  if (state.incoming.detail?.id === shaped.id) {
+    state.incoming.detail = shaped;
+  }
+}
+
+async function confirmDecline() {
+  const dialog = state.incoming.decline;
+  if (!dialog || state.incoming.declining) return;
+
+  state.incoming.declining = true;
+  state.incoming.declineError = "";
+  render();
+
+  try {
+    const updated = await declineIncomingPaymentRequest(dialog.requestId, { confirm: true });
+    if (updated) mergeUpdatedIncomingRequest(updated);
+    state.incoming.decline = null;
+    state.incoming.successMessage = "Request declined.";
+  } catch (error) {
+    if (error.body?.paymentRequest) {
+      mergeUpdatedIncomingRequest(error.body.paymentRequest);
+    }
+    state.incoming.declineError = error.message || ERROR_MESSAGES.decline_failed;
+  } finally {
+    state.incoming.declining = false;
+    render();
   }
 }
 

@@ -1,7 +1,12 @@
 import { randomBytes } from "node:crypto";
 import { createSupabaseServerClient } from "./supabase-client.js";
 import { validateCreatePaymentRequestPayload } from "./payment-request-validation.js";
-import { ERROR_MESSAGES } from "../src/payment-request.js";
+import {
+  ERROR_MESSAGES,
+  EXPIRY_WINDOW_MS,
+  computeExpiresAt,
+  computeDaysRemaining
+} from "../src/payment-request.js";
 import { demoUser } from "../src/mock-data.js";
 
 const PAYMENT_REQUESTS_TABLE = "payment_requests";
@@ -22,11 +27,11 @@ function createErrorResponse(code) {
   };
 }
 
-function requestErrorResult(code, statusCode) {
+function requestErrorResult(code, statusCode, extras = {}) {
   return {
     ok: false,
     statusCode,
-    body: createErrorResponse(code)
+    body: { ...createErrorResponse(code), ...extras }
   };
 }
 
@@ -54,6 +59,40 @@ export function toClientPaymentRequest(row) {
   }
 
   return request;
+}
+
+function shapeWithDerivedFields(row, now) {
+  const base = toClientPaymentRequest(row);
+  const expiresAt = computeExpiresAt(row.created_at);
+  const status = String(row.status ?? "");
+  const daysRemaining =
+    status === "pending" ? computeDaysRemaining(expiresAt, now) : 0;
+  return {
+    ...base,
+    expiresAt: expiresAt ? expiresAt.toISOString() : null,
+    daysRemaining
+  };
+}
+
+async function promoteExpiredOnRead(supabase, row, now) {
+  if (!row) return row;
+  if (row.status !== "pending") return row;
+  const created = new Date(row.created_at);
+  if (Number.isNaN(created.getTime())) return row;
+  if (now.getTime() < created.getTime() + EXPIRY_WINDOW_MS) return row;
+
+  const updatedAt = now.toISOString();
+  const { data, error } = await supabase
+    .from(PAYMENT_REQUESTS_TABLE)
+    .update({ status: "expired", updated_at: updatedAt })
+    .eq("id", row.id)
+    .eq("status", "pending")
+    .select()
+    .maybeSingle();
+
+  if (error) return { ...row, status: "expired", updated_at: updatedAt };
+  if (!data) return { ...row, status: "expired", updated_at: updatedAt };
+  return data;
 }
 
 async function insertPaymentRequest(supabase, insertPayload) {
@@ -205,6 +244,110 @@ export async function withdrawOutgoingPaymentRequest(id, payload, options = {}) 
   };
 }
 
+export async function listIncomingPaymentRequests(options = {}) {
+  const currentUser = options.currentUser ?? demoUser;
+  const supabase = options.supabase ?? createSupabaseServerClient();
+  const now = (options.now ?? (() => new Date()))();
+
+  const { data, error } = await supabase
+    .from(PAYMENT_REQUESTS_TABLE)
+    .select("*")
+    .eq("recipient_id", currentUser.id)
+    .order("created_at", { ascending: false });
+
+  if (error) return requestErrorResult("incoming_list_failed", 500);
+
+  const promoted = [];
+  for (const row of data ?? []) {
+    const next = await promoteExpiredOnRead(supabase, row, now);
+    promoted.push(next);
+  }
+
+  return {
+    ok: true,
+    statusCode: 200,
+    body: {
+      paymentRequests: promoted.map((row) => shapeWithDerivedFields(row, now))
+    }
+  };
+}
+
+export async function getIncomingPaymentRequest(id, options = {}) {
+  if (!id) return requestErrorResult("request_not_found", 404);
+
+  const currentUser = options.currentUser ?? demoUser;
+  const supabase = options.supabase ?? createSupabaseServerClient();
+  const now = (options.now ?? (() => new Date()))();
+
+  const { data, error } = await supabase
+    .from(PAYMENT_REQUESTS_TABLE)
+    .select("*")
+    .eq("id", id)
+    .eq("recipient_id", currentUser.id)
+    .maybeSingle();
+
+  if (error) return requestErrorResult("incoming_detail_failed", 500);
+  if (!data) return requestErrorResult("request_not_found", 404);
+
+  const promoted = await promoteExpiredOnRead(supabase, data, now);
+  return {
+    ok: true,
+    statusCode: 200,
+    body: {
+      paymentRequest: shapeWithDerivedFields(promoted, now)
+    }
+  };
+}
+
+export async function declineIncomingPaymentRequest(id, payload, options = {}) {
+  if (payload?.confirm !== true) {
+    return requestErrorResult("decline_confirmation_required", 400);
+  }
+
+  if (!id) return requestErrorResult("request_not_found", 404);
+
+  const currentUser = options.currentUser ?? demoUser;
+  const supabase = options.supabase ?? createSupabaseServerClient();
+  const now = (options.now ?? (() => new Date()))();
+
+  const existing = await supabase
+    .from(PAYMENT_REQUESTS_TABLE)
+    .select("*")
+    .eq("id", id)
+    .eq("recipient_id", currentUser.id)
+    .maybeSingle();
+
+  if (existing.error) return requestErrorResult("incoming_detail_failed", 500);
+  if (!existing.data) return requestErrorResult("request_not_found", 404);
+
+  const promoted = await promoteExpiredOnRead(supabase, existing.data, now);
+  if (promoted.status !== "pending") {
+    return requestErrorResult("decline_not_allowed", 409, {
+      paymentRequest: shapeWithDerivedFields(promoted, now)
+    });
+  }
+
+  const updatedAt = now.toISOString();
+  const { data, error } = await supabase
+    .from(PAYMENT_REQUESTS_TABLE)
+    .update({ status: "declined", updated_at: updatedAt })
+    .eq("id", id)
+    .eq("recipient_id", currentUser.id)
+    .eq("status", "pending")
+    .select()
+    .maybeSingle();
+
+  if (error || !data) return requestErrorResult("request_update_failed", 500);
+
+  return {
+    ok: true,
+    statusCode: 200,
+    body: {
+      paymentRequest: shapeWithDerivedFields(data, now)
+    }
+  };
+}
+
 async function readBody(req) {
   if (req.body !== undefined) {
     if (typeof req.body === "string") {
@@ -244,11 +387,18 @@ export default async function handler(req, res) {
     result = await createPaymentRequest(payload);
   } else if (req.method === "GET" && pathParts.length === 0 && direction === "outgoing") {
     result = await listOutgoingPaymentRequests();
+  } else if (req.method === "GET" && pathParts.length === 0 && direction === "incoming") {
+    result = await listIncomingPaymentRequests();
   } else if (req.method === "GET" && pathParts.length === 1 && direction === "outgoing") {
     result = await getOutgoingPaymentRequest(pathParts[0]);
+  } else if (req.method === "GET" && pathParts.length === 1 && direction === "incoming") {
+    result = await getIncomingPaymentRequest(pathParts[0]);
   } else if (req.method === "PATCH" && pathParts.length === 2 && pathParts[1] === "withdraw") {
     const payload = await readBody(req);
     result = await withdrawOutgoingPaymentRequest(pathParts[0], payload);
+  } else if (req.method === "PATCH" && pathParts.length === 2 && pathParts[1] === "decline") {
+    const payload = await readBody(req);
+    result = await declineIncomingPaymentRequest(pathParts[0], payload);
   } else {
     const allowed = pathParts.length === 0 ? "GET, POST" : "GET, PATCH";
     res.setHeader("Allow", allowed);
